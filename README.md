@@ -10,7 +10,8 @@ La base stable actuelle est **ATS LAB v0.09.1d NIXIE DOT**.
 Tags disponibles :
 
 - `v0.09.1d` : première base stable enregistrée dans Git ;
-- `v0.09.1d-optimized` : base stable avec optimisations validées.
+- `v0.09.1d-optimized` : base stable avec optimisations validées ;
+- `v0.09.1d-scan-rds-fix` : correction validée du scan FM et du RDS.
 
 ## Fonctions principales
 
@@ -22,6 +23,10 @@ Tags disponibles :
 - affichage de fréquence sur huit Nixies avec point décimal indépendant ;
 - Spectrum Analyzer utilisant les commandes de scan ATS ;
 - affichage RSSI/S-mètre, RDS et informations du récepteur.
+
+Le Spectrum Analyzer et le RDS sont réservés à la bande FM broadcast de
+87,5 à 108 MHz. Le RDS est temporairement désactivé pendant un scan puis
+réactivé après `SCANEND`.
 
 ## Environnement
 
