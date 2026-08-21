@@ -124,10 +124,10 @@ begin
     FCount := EnsureRange(FCount, 0, CMaxScanPoints);
     SetLength(FRSSI, FCount);
     SetLength(FSNR, FCount);
-    for I := 0 to FCount - 1 do
+    if FCount > 0 then
     begin
-      FRSSI[I] := 0;
-      FSNR[I] := 0;
+      FillChar(FRSSI[0], FCount * SizeOf(Integer), 0);
+      FillChar(FSNR[0], FCount * SizeOf(Integer), 0);
     end;
     FReceiving := True;
     Exit;
