@@ -1,4 +1,4 @@
-﻿object frmMain: TfrmMain
+object frmMain: TfrmMain
   Left = 0
   Top = 0
   BorderIcons = []
