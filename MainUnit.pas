@@ -2088,16 +2088,17 @@ begin
     if FSmallKnobs[1] <> nil then FSmallKnobs[1].Value := FSquelch;
     if FSmallKnobs[2] <> nil then FSmallKnobs[2].Value := FBFO;
 
-    UpdateBFOText;
-    UpdateDisplay;
-    UpdateModeImage;
-    UpdateModeLamps;
-    UpdateModeButtons;
-
     if FHasCurrentHamBand then
       ApplyHamModeRules(FCurrentHamBand)
     else if FInRadioBand and FHasCurrentRadioBand then
       ApplyRadioModeRules(FCurrentRadioBand);
+
+    { Les règles de bande peuvent corriger FMode. Rafraîchir seulement après
+      leur application pour éviter un état visuel transitoire ou incohérent. }
+    UpdateBFOText;
+    UpdateDisplay;
+    UpdateModeImage;
+    UpdateModeButtons;
 
     if (FRemoteModeConfirmCount >= 2) and (ReceivedMode <> '') and
        (not SameText(FMode, ReceivedMode)) then
