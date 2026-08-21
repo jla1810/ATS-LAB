@@ -223,6 +223,7 @@ type
     procedure UpdateNixieDecimal(const ADigitsBeforePoint: Integer);
     procedure SetModeByIndex(const AIndex: Integer);
     function IsFMBand: Boolean;
+    function IsBroadcastFMActive: Boolean;
     procedure EnforceFMBandMode;
     procedure LoadVisualAssets;
     procedure FreeVisualAssets;
@@ -1283,7 +1284,7 @@ begin
   if FButtonManager = nil then
     Exit;
 
-  CanScan := FPowerOn and SameText(FMode, 'FM');
+  CanScan := FPowerOn and IsBroadcastFMActive;
   hsScan.Enabled := CanScan;
 
   if CanScan then
@@ -1701,6 +1702,16 @@ begin
     (FFrequencyHz <= 108000000);
 end;
 
+function TfrmMain.IsBroadcastFMActive: Boolean;
+begin
+  Result :=
+    FInRadioBand and
+    FHasCurrentRadioBand and
+    (FCurrentRadioBand = rbFM) and
+    IsFMBand and
+    SameText(FMode, 'FM');
+end;
+
 procedure TfrmMain.EnforceFMBandMode;
 begin
   if not IsFMBand then
@@ -1818,6 +1829,15 @@ begin
 
   if not FScanEnabled then
   begin
+    { Le scan FM et le décodeur RDS partagent les ressources du récepteur.
+      Couper le RDS avant de démarrer le balayage natif ATS. }
+    if FRDSEnabledOnATS then
+    begin
+      SendATSCommand(TATSProtocol.SetRDS(False), False);
+      FRDSEnabledOnATS := False;
+      ClearRDSDisplay;
+    end;
+
     if not SendATSCommand(TATSProtocol.ScanStart, False) then
     begin
       FScanEnabled := False;
@@ -2459,7 +2479,7 @@ begin
   { Gestion automatique du RDS.
     - En FM : RDS=ON une seule fois, puis RDS? à chaque polling.
     - Hors FM : RDS=OFF une seule fois. }
-  if IsFMBand or SameText(FMode, 'FM') then
+  if IsBroadcastFMActive and not FScanEnabled then
   begin
     if not FRDSEnabledOnATS then
     begin
@@ -2473,11 +2493,9 @@ begin
   else
   begin
     if FRDSEnabledOnATS then
-    begin
       SendATSCommand(TATSProtocol.SetRDS(False), False);
-      FRDSEnabledOnATS := False;
-      ClearRDSDisplay;
-    end;
+    FRDSEnabledOnATS := False;
+    ClearRDSDisplay;
   end;
 
   if not SendATSCommand(TATSProtocol.RequestStatus, False) then
@@ -2509,7 +2527,8 @@ begin
          StartsText('RDSPTY,', L) or
          StartsText('RDSCT,', L) then
       begin
-        ParseRDSLine(L);
+        if IsBroadcastFMActive and not FScanEnabled then
+          ParseRDSLine(L);
         Continue;
       end;
 
@@ -2642,10 +2661,8 @@ begin
   SelectRadioBand(rbFM);
 
   if FPowerOn and (FATSConnection <> nil) and FATSConnection.IsAlive then
-  begin
-    SendATSCommand(TATSProtocol.SetRDS(True), False);
-    FRDSEnabledOnATS := True;
-  end;
+    FRDSEnabledOnATS :=
+      SendATSCommand(TATSProtocol.SetRDS(True), False);
 end;
 
 procedure TfrmMain.NixieClick(Sender: TObject);
