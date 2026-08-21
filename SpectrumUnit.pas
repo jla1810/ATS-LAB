@@ -28,14 +28,18 @@ type
     FBaseKHz: Double;
     FStepKHz: Double;
     FReceiving: Boolean;
+    FReceivedCount: Integer;
     FOnStopRequest: TSpectrumStopEvent;
     FOnScanEnd: TSpectrumScanEndEvent;
     procedure ClearData;
     procedure UpdateInfo;
+    procedure UpdateProgress;
     function ValueAfterKey(const ALine, AKey: string): string;
   public
     procedure BeginScan;
+    procedure AbortScan(const AReason: string);
     procedure ProcessScanLine(const ALine: string);
+    property Receiving: Boolean read FReceiving;
     property OnStopRequest: TSpectrumStopEvent read FOnStopRequest write FOnStopRequest;
     property OnScanEnd: TSpectrumScanEndEvent read FOnScanEnd write FOnScanEnd;
   end;
@@ -57,6 +61,7 @@ begin
   FBaseKHz := 0;
   FStepKHz := 0;
   FReceiving := False;
+  FReceivedCount := 0;
   lblRange.Caption := 'En attente des donnees du scanner ATS...';
   lblPeak.Caption := 'PIC : ---';
 end;
@@ -69,6 +74,15 @@ begin
   FBaseKHz := 0;
   FStepKHz := 0;
   FReceiving := False;
+  FReceivedCount := 0;
+  pbSpectrum.Invalidate;
+end;
+
+procedure TfrmSpectrum.AbortScan(const AReason: string);
+begin
+  FReceiving := False;
+  if Trim(AReason) <> '' then
+    lblRange.Caption := AReason;
   pbSpectrum.Invalidate;
 end;
 
@@ -130,6 +144,8 @@ begin
       FillChar(FSNR[0], FCount * SizeOf(Integer), 0);
     end;
     FReceiving := True;
+    FReceivedCount := 0;
+    UpdateProgress;
     Exit;
   end;
 
@@ -151,6 +167,9 @@ begin
       Inc(DataIndex);
       Inc(I, 2);
     end;
+    if DataIndex > FReceivedCount then
+      FReceivedCount := DataIndex;
+    UpdateProgress;
     Exit;
   end;
 
@@ -162,6 +181,15 @@ begin
     if Assigned(FOnScanEnd) then
       FOnScanEnd(Self);
   end;
+end;
+
+procedure TfrmSpectrum.UpdateProgress;
+begin
+  if FCount <= 0 then
+    lblRange.Caption := 'Scan en cours : attente des points...'
+  else
+    lblRange.Caption := Format('Scan en cours : %d / %d points',
+      [EnsureRange(FReceivedCount, 0, FCount), FCount]);
 end;
 
 procedure TfrmSpectrum.UpdateInfo;

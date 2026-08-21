@@ -198,6 +198,8 @@ type
     FDragging: Boolean;
     FLastMouseY: Integer;
     FScanEnabled: Boolean;
+    FScanStartTick: UInt64;
+    FScanLastActivityTick: UInt64;
     FLocked: Boolean;
     FReceiverModel: string;
     FReceiverFirmware: string;
@@ -276,6 +278,7 @@ type
     procedure ParseReceiverId(const ALine: string);
     procedure SpectrumStopRequest(Sender: TObject);
     procedure SpectrumScanEnded(Sender: TObject);
+    procedure AbortSpectrumScan(const AReason: string);
   end;
 
 var
@@ -301,6 +304,9 @@ const
     (148500, 531000, 2300000, 87500000);
   CRadioMax: array[TRadioBandIndex] of Int64 =
     (283500, 1602000, 26100000, 108000000);
+  CScanBeginTimeoutMs = UInt64(5000);
+  CScanInactivityTimeoutMs = UInt64(30000);
+  CScanTotalTimeoutMs = UInt64(120000);
 
 procedure TfrmMain.RequestReceiverId;
 begin
@@ -438,6 +444,8 @@ FPowerOn := False;
   FMode := 'USB';
   FDragging := False;
   FScanEnabled := False;
+  FScanStartTick := 0;
+  FScanLastActivityTick := 0;
   frmSpectrum := TfrmSpectrum.Create(Self);
   frmSpectrum.OnStopRequest := SpectrumStopRequest;
   frmSpectrum.OnScanEnd := SpectrumScanEnded;
@@ -1296,9 +1304,13 @@ begin
   if (not CanScan) and FScanEnabled then
   begin
     FScanEnabled := False;
+    FScanStartTick := 0;
+    FScanLastActivityTick := 0;
 
     if (FATSConnection <> nil) and FATSConnection.IsAlive then
       SendATSCommand(TATSProtocol.ScanStop);
+    if frmSpectrum <> nil then
+      frmSpectrum.AbortScan('Scan interrompu : bande FM quittée.');
   end;
 
   FButtonManager.SetState(FMode, True);
@@ -1799,6 +1811,24 @@ end;
 procedure TfrmMain.SpectrumScanEnded(Sender: TObject);
 begin
   FScanEnabled := False;
+  FScanStartTick := 0;
+  FScanLastActivityTick := 0;
+  UpdateModeLamps;
+  UpdateDisplay;
+end;
+
+procedure TfrmMain.AbortSpectrumScan(const AReason: string);
+begin
+  if FScanEnabled and (FATSConnection <> nil) and FATSConnection.IsAlive then
+    SendATSCommand(TATSProtocol.ScanStop, False);
+
+  FScanEnabled := False;
+  FScanStartTick := 0;
+  FScanLastActivityTick := 0;
+
+  if frmSpectrum <> nil then
+    frmSpectrum.AbortScan(AReason);
+
   UpdateModeLamps;
   UpdateDisplay;
 end;
@@ -1807,12 +1837,7 @@ end;
 procedure TfrmMain.SpectrumStopRequest(Sender: TObject);
 begin
   if FScanEnabled then
-  begin
-    FScanEnabled := False;
-    SendATSCommand(TATSProtocol.ScanStop, False);
-    UpdateModeLamps;
-    UpdateDisplay;
-  end;
+    AbortSpectrumScan('Scan arrêté par l''utilisateur.');
 end;
 
 
@@ -1847,13 +1872,14 @@ begin
     end;
 
     FScanEnabled := True;
+    FScanStartTick := GetTickCount64;
+    FScanLastActivityTick := FScanStartTick;
     if frmSpectrum <> nil then
       frmSpectrum.BeginScan;
   end
   else
   begin
-    FScanEnabled := False;
-    SendATSCommand(TATSProtocol.ScanStop, False);
+    AbortSpectrumScan('Scan arrêté par l''utilisateur.');
     if frmSpectrum <> nil then
       frmSpectrum.Hide;
   end;
@@ -2470,11 +2496,34 @@ procedure TfrmMain.PollATSStatus;
 var
   ResponseLine: string;
   ParsedStatus: TATSStatus;
-  StartTick: UInt64;
+  StartTick, CurrentTick: UInt64;
   L: string;
 begin
   if (FATSConnection = nil) or not FATSConnection.IsAlive then
     Exit;
+
+  if FScanEnabled then
+  begin
+    CurrentTick := GetTickCount64;
+    if (frmSpectrum = nil) then
+    begin
+      AbortSpectrumScan('Scan interrompu : fenêtre Spectrum indisponible.');
+    end
+    else if (not frmSpectrum.Receiving) and
+            (CurrentTick - FScanStartTick >= CScanBeginTimeoutMs) then
+    begin
+      AbortSpectrumScan('Scan refusé ou SCANBEGIN absent après 5 secondes.');
+    end
+    else if frmSpectrum.Receiving and
+            (CurrentTick - FScanLastActivityTick >= CScanInactivityTimeoutMs) then
+    begin
+      AbortSpectrumScan('Scan interrompu : aucune donnée reçue depuis 30 secondes.');
+    end
+    else if CurrentTick - FScanStartTick >= CScanTotalTimeoutMs then
+    begin
+      AbortSpectrumScan('Scan interrompu : durée maximale de 120 secondes dépassée.');
+    end;
+  end;
 
   { Gestion automatique du RDS.
     - En FM : RDS=ON une seule fois, puis RDS? à chaque polling.
@@ -2532,10 +2581,21 @@ begin
         Continue;
       end;
 
+      if FScanEnabled and
+         (StartsText('SCANERROR', L) or
+          StartsText('SCAN,ERROR', L) or
+          StartsText('ERR,SCAN', L) or
+          StartsText('ERROR,SCAN', L)) then
+      begin
+        AbortSpectrumScan('Scan refusé par l''ATS : ' + L);
+        Continue;
+      end;
+
       if StartsText('SCANBEGIN,', L) or
          StartsText('SCANDATA,', L) or
          SameText('SCANEND', L) then
       begin
+        FScanLastActivityTick := GetTickCount64;
         if frmSpectrum <> nil then
           frmSpectrum.ProcessScanLine(L);
         Continue;
@@ -2592,6 +2652,8 @@ begin
   if (FATSConnection = nil) or not FATSConnection.IsAlive then
   begin
     FConnectionTimer.Enabled := False;
+    if FScanEnabled then
+      AbortSpectrumScan('Scan interrompu : connexion ATS perdue.');
     FRDSEnabledOnATS := False;
     FPowerOn := False;
     UpdatePowerState;
