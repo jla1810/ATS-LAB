@@ -1,0 +1,25 @@
+# Delphi build outputs
+*.dcu
+*.exe
+*.map
+*.rsm
+*.tds
+*.drc
+
+# Delphi IDE local files and backups
+*.dproj.local
+*.identcache
+*.bak
+*.~*
+__history/
+
+# Local configuration and packaged snapshots
+*.ini
+*.zip
+
+# Common build directories
+Win32/
+Win64/
+Debug/
+Release/
+
