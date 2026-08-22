@@ -2637,7 +2637,7 @@ begin
       AbortSpectrumScan('Scan interrompu : fenêtre Spectrum indisponible.');
     end
     else if (not frmSpectrum.Receiving) and
-            (CurrentTick - FScanStartTick >= CScanBeginTimeoutMs) then
+            (CurrentTick - FScanLastActivityTick >= CScanBeginTimeoutMs) then
     begin
       AbortSpectrumScan('Scan refusé ou SCANBEGIN absent après 5 secondes.');
     end
@@ -2715,6 +2715,15 @@ begin
           StartsText('ERROR,SCAN', L)) then
       begin
         AbortSpectrumScan('Scan refusé par l''ATS : ' + L);
+        Continue;
+      end;
+
+      { Le premier balayage complet prend plusieurs secondes avec le temps de
+        stabilisation du tuner. Ce message maintient le timeout d'activite,
+        tandis que le timeout total de 120 secondes reste applicable. }
+      if FScanEnabled and SameText('SCAN,STATE=RUNNING', L) then
+      begin
+        FScanLastActivityTick := GetTickCount64;
         Continue;
       end;
 
