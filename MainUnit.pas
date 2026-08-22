@@ -1842,6 +1842,13 @@ end;
 
 
 procedure TfrmMain.hsScanClick(Sender: TObject);
+const
+  CScanPointCount = 320;
+var
+  StartText, StepText: string;
+  StartMHz: Double;
+  StartKHz, StepKHz, EndKHz: Int64;
+  LocalFormat: TFormatSettings;
 begin
   if IsFrontPanelLocked then
     Exit;
@@ -1854,6 +1861,44 @@ begin
 
   if not FScanEnabled then
   begin
+    StartText := FormatFloat('0.000', FFrequencyHz / 1000000);
+    if not InputQuery('PARAMETRES DU SCAN FM',
+      'Frequence de depart (MHz) :', StartText) then
+      Exit;
+
+    LocalFormat := TFormatSettings.Create;
+    StartText := StringReplace(Trim(StartText), '.',
+      LocalFormat.DecimalSeparator, [rfReplaceAll]);
+    if not TryStrToFloat(StartText, StartMHz, LocalFormat) then
+    begin
+      MessageDlg('Frequence de depart invalide.', mtError, [mbOK], 0);
+      Exit;
+    end;
+    StartKHz := Round(StartMHz * 1000);
+
+    StepText := '10';
+    if not InputQuery('PARAMETRES DU SCAN FM',
+      'Pas (kHz, multiple de 10) :', StepText) then
+      Exit;
+    if not TryStrToInt64(Trim(StepText), StepKHz) or
+       (StepKHz < 10) or (StepKHz > 1000) or ((StepKHz mod 10) <> 0) then
+    begin
+      MessageDlg('Le pas doit etre un multiple de 10 kHz, entre 10 et 1000 kHz.',
+        mtError, [mbOK], 0);
+      Exit;
+    end;
+
+    EndKHz := StartKHz + ((CScanPointCount - 1) * StepKHz);
+    if (StartKHz < 87500) or (StartKHz > 108000) or
+       (EndKHz > 108000) then
+    begin
+      MessageDlg(Format(
+        'Plage invalide : le scan irait de %.3f a %.3f MHz.' + sLineBreak +
+        'La plage FM autorisee est 87.500 a 108.000 MHz.',
+        [StartKHz / 1000, EndKHz / 1000]), mtError, [mbOK], 0);
+      Exit;
+    end;
+
     { Le scan FM et le décodeur RDS partagent les ressources du récepteur.
       Couper le RDS avant de démarrer le balayage natif ATS. }
     if FRDSEnabledOnATS then
@@ -1863,7 +1908,7 @@ begin
       ClearRDSDisplay;
     end;
 
-    if not SendATSCommand(TATSProtocol.ScanStart, False) then
+    if not SendATSCommand(TATSProtocol.ScanStartAt(StartKHz, StepKHz), False) then
     begin
       FScanEnabled := False;
       UpdateModeLamps;
