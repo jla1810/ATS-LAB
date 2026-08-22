@@ -135,6 +135,10 @@ begin
     FCount := StrToIntDef(ValueAfterKey(L, 'COUNT='), 0);
     FBaseKHz := StrToFloatDef(ValueAfterKey(L, 'BASE_KHZ='), 0, FS);
     FStepKHz := StrToFloatDef(ValueAfterKey(L, 'STEP_KHZ='), 0, FS);
+    { Certains firmwares FM renvoient BASE_KHZ en dizaines de kHz :
+      9594 représente alors 95940 kHz. STEP_KHZ reste déjà exprimé en kHz. }
+    if (FBaseKHz >= 8750) and (FBaseKHz <= 10800) then
+      FBaseKHz := FBaseKHz * 10;
     FCount := EnsureRange(FCount, 0, CMaxScanPoints);
     SetLength(FRSSI, FCount);
     SetLength(FSNR, FCount);
@@ -232,6 +236,7 @@ var
   C: TCanvas;
   R: TRect;
   PlotW, PlotH, I, X, Y, PrevX, PrevY, Grid: Integer;
+  MaxRSSI, ScaleMax: Integer;
   FreqKHz: Double;
   S: string;
 begin
@@ -248,12 +253,18 @@ begin
   C.Font.Size := 8;
   C.Font.Color := RGB(194, 176, 115);
 
+  MaxRSSI := 0;
+  for I := 0 to FCount - 1 do
+    if FRSSI[I] > MaxRSSI then
+      MaxRSSI := FRSSI[I];
+  ScaleMax := EnsureRange(((MaxRSSI + 9) div 10) * 10, 20, 100);
+
   for Grid := 0 to 5 do
   begin
     Y := MarginT + MulDiv(Grid, PlotH, 5);
     C.MoveTo(MarginL, Y);
     C.LineTo(MarginL + PlotW, Y);
-    S := IntToStr(100 - Grid * 20);
+    S := IntToStr(ScaleMax - MulDiv(Grid, ScaleMax, 5));
     C.TextOut(8, Y - 7, S);
   end;
 
@@ -278,11 +289,13 @@ begin
   C.Pen.Color := RGB(75, 230, 125);
   C.Pen.Width := 2;
   PrevX := MarginL;
-  PrevY := MarginT + PlotH - MulDiv(EnsureRange(FRSSI[0], 0, 100), PlotH, 100);
+  PrevY := MarginT + PlotH -
+    MulDiv(EnsureRange(FRSSI[0], 0, ScaleMax), PlotH, ScaleMax);
   for I := 1 to FCount - 1 do
   begin
     X := MarginL + MulDiv(I, PlotW, FCount - 1);
-    Y := MarginT + PlotH - MulDiv(EnsureRange(FRSSI[I], 0, 100), PlotH, 100);
+    Y := MarginT + PlotH -
+      MulDiv(EnsureRange(FRSSI[I], 0, ScaleMax), PlotH, ScaleMax);
     C.MoveTo(PrevX, PrevY);
     C.LineTo(X, Y);
     PrevX := X;
