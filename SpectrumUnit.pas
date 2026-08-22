@@ -10,6 +10,8 @@ uses
 type
   TSpectrumStopEvent = procedure(Sender: TObject) of object;
   TSpectrumScanEndEvent = procedure(Sender: TObject) of object;
+  TSpectrumTuneEvent = procedure(Sender: TObject;
+    AFrequencyKHz: Int64) of object;
 
   TfrmSpectrum = class(TForm)
     pbSpectrum: TPaintBox;
@@ -20,6 +22,8 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure pbSpectrumPaint(Sender: TObject);
+    procedure pbSpectrumMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
     procedure btnCloseClick(Sender: TObject);
   private
     FRSSI: TArray<Integer>;
@@ -29,8 +33,10 @@ type
     FStepKHz: Double;
     FReceiving: Boolean;
     FReceivedCount: Integer;
+    FSelectedIndex: Integer;
     FOnStopRequest: TSpectrumStopEvent;
     FOnScanEnd: TSpectrumScanEndEvent;
+    FOnTuneRequest: TSpectrumTuneEvent;
     procedure ClearData;
     procedure UpdateInfo;
     procedure UpdateProgress;
@@ -42,6 +48,7 @@ type
     property Receiving: Boolean read FReceiving;
     property OnStopRequest: TSpectrumStopEvent read FOnStopRequest write FOnStopRequest;
     property OnScanEnd: TSpectrumScanEndEvent read FOnScanEnd write FOnScanEnd;
+    property OnTuneRequest: TSpectrumTuneEvent read FOnTuneRequest write FOnTuneRequest;
   end;
 
 var
@@ -51,6 +58,10 @@ implementation
 
 const
   CMaxScanPoints = 4096;
+  CSpectrumMarginL = 54;
+  CSpectrumMarginR = 18;
+  CSpectrumMarginT = 18;
+  CSpectrumMarginB = 38;
 
 {$R *.dfm}
 
@@ -62,6 +73,8 @@ begin
   FStepKHz := 0;
   FReceiving := False;
   FReceivedCount := 0;
+  FSelectedIndex := -1;
+  pbSpectrum.OnMouseDown := pbSpectrumMouseDown;
   lblRange.Caption := 'En attente des donnees du scanner ATS...';
   lblPeak.Caption := 'PIC : ---';
 end;
@@ -75,6 +88,7 @@ begin
   FStepKHz := 0;
   FReceiving := False;
   FReceivedCount := 0;
+  FSelectedIndex := -1;
   pbSpectrum.Invalidate;
 end;
 
@@ -226,12 +240,40 @@ begin
     [PeakKHz / 1000, PeakValue, FSNR[PeakIndex]]);
 end;
 
+procedure TfrmSpectrum.pbSpectrumMouseDown(Sender: TObject;
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  PlotW, PlotH: Integer;
+  FrequencyKHz: Int64;
+begin
+  if (Button <> mbLeft) or FReceiving or
+     (FCount < 2) or (FStepKHz <= 0) then
+    Exit;
+
+  PlotW := Max(1, pbSpectrum.ClientWidth -
+    CSpectrumMarginL - CSpectrumMarginR);
+  PlotH := Max(1, pbSpectrum.ClientHeight -
+    CSpectrumMarginT - CSpectrumMarginB);
+  if (X < CSpectrumMarginL) or
+     (X > CSpectrumMarginL + PlotW) or
+     (Y < CSpectrumMarginT) or
+     (Y > CSpectrumMarginT + PlotH) then
+    Exit;
+
+  FSelectedIndex := EnsureRange(
+    Round((X - CSpectrumMarginL) * (FCount - 1) / PlotW),
+    0, FCount - 1);
+  FrequencyKHz := Round(FBaseKHz + (FSelectedIndex * FStepKHz));
+  lblPeak.Caption := Format(
+    'SELECTION : %.3f MHz   RSSI %d   SNR %d',
+    [FrequencyKHz / 1000, FRSSI[FSelectedIndex], FSNR[FSelectedIndex]]);
+  pbSpectrum.Invalidate;
+
+  if Assigned(FOnTuneRequest) then
+    FOnTuneRequest(Self, FrequencyKHz);
+end;
+
 procedure TfrmSpectrum.pbSpectrumPaint(Sender: TObject);
-const
-  MarginL = 54;
-  MarginR = 18;
-  MarginT = 18;
-  MarginB = 38;
 var
   C: TCanvas;
   R: TRect;
@@ -245,8 +287,8 @@ begin
   C.Brush.Color := RGB(14, 18, 17);
   C.FillRect(R);
 
-  PlotW := Max(1, R.Width - MarginL - MarginR);
-  PlotH := Max(1, R.Height - MarginT - MarginB);
+  PlotW := Max(1, R.Width - CSpectrumMarginL - CSpectrumMarginR);
+  PlotH := Max(1, R.Height - CSpectrumMarginT - CSpectrumMarginB);
 
   C.Pen.Color := RGB(68, 78, 72);
   C.Font.Name := 'Consolas';
@@ -261,40 +303,41 @@ begin
 
   for Grid := 0 to 5 do
   begin
-    Y := MarginT + MulDiv(Grid, PlotH, 5);
-    C.MoveTo(MarginL, Y);
-    C.LineTo(MarginL + PlotW, Y);
+    Y := CSpectrumMarginT + MulDiv(Grid, PlotH, 5);
+    C.MoveTo(CSpectrumMarginL, Y);
+    C.LineTo(CSpectrumMarginL + PlotW, Y);
     S := IntToStr(ScaleMax - MulDiv(Grid, ScaleMax, 5));
     C.TextOut(8, Y - 7, S);
   end;
 
   for Grid := 0 to 4 do
   begin
-    X := MarginL + MulDiv(Grid, PlotW, 4);
-    C.MoveTo(X, MarginT);
-    C.LineTo(X, MarginT + PlotH);
+    X := CSpectrumMarginL + MulDiv(Grid, PlotW, 4);
+    C.MoveTo(X, CSpectrumMarginT);
+    C.LineTo(X, CSpectrumMarginT + PlotH);
     if (FCount > 0) and (FStepKHz > 0) then
     begin
       FreqKHz := FBaseKHz + ((FCount - 1) * FStepKHz * Grid / 4);
       S := Format('%.3f', [FreqKHz / 1000]);
-      C.TextOut(X - 25, MarginT + PlotH + 8, S);
+      C.TextOut(X - 25, CSpectrumMarginT + PlotH + 8, S);
     end;
   end;
 
   C.Pen.Color := RGB(201, 172, 84);
-  C.Rectangle(MarginL, MarginT, MarginL + PlotW, MarginT + PlotH);
+  C.Rectangle(CSpectrumMarginL, CSpectrumMarginT,
+    CSpectrumMarginL + PlotW, CSpectrumMarginT + PlotH);
 
   if FCount < 2 then Exit;
 
   C.Pen.Color := RGB(75, 230, 125);
   C.Pen.Width := 2;
-  PrevX := MarginL;
-  PrevY := MarginT + PlotH -
+  PrevX := CSpectrumMarginL;
+  PrevY := CSpectrumMarginT + PlotH -
     MulDiv(EnsureRange(FRSSI[0], 0, ScaleMax), PlotH, ScaleMax);
   for I := 1 to FCount - 1 do
   begin
-    X := MarginL + MulDiv(I, PlotW, FCount - 1);
-    Y := MarginT + PlotH -
+    X := CSpectrumMarginL + MulDiv(I, PlotW, FCount - 1);
+    Y := CSpectrumMarginT + PlotH -
       MulDiv(EnsureRange(FRSSI[I], 0, ScaleMax), PlotH, ScaleMax);
     C.MoveTo(PrevX, PrevY);
     C.LineTo(X, Y);
@@ -302,6 +345,15 @@ begin
     PrevY := Y;
   end;
   C.Pen.Width := 1;
+
+  if (FSelectedIndex >= 0) and (FSelectedIndex < FCount) then
+  begin
+    X := CSpectrumMarginL +
+      MulDiv(FSelectedIndex, PlotW, FCount - 1);
+    C.Pen.Color := RGB(255, 210, 70);
+    C.MoveTo(X, CSpectrumMarginT);
+    C.LineTo(X, CSpectrumMarginT + PlotH);
+  end;
 end;
 
 end.
