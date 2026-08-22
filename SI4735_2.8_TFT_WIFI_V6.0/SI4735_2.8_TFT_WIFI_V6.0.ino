@@ -30,7 +30,7 @@ void FreqDispl();
 void FreqDraw(float freq, int d);
 void Segment(String freq, String mask, int d);
 bool pcStartScan(uint32_t requestedBaseKHz = 0,
-                 uint16_t requestedStepKHz = 0);
+                 float requestedStepKHz = 0);
 
 String WIFI_SSID = "";
 String WIFI_PASS = "";
@@ -295,6 +295,7 @@ long elapsedBat     = 0;
 
 bool  SCANbut             = false;
 int   currentScanFreq;
+int   pcScanDataCount = 0;
 int   posScanFreq;
 int   posScan;
 int   posScanLast;
@@ -2282,7 +2283,7 @@ bool pcSetMode(const String &modeText) {
   return true;
 }
 
-bool pcStartScan(uint32_t requestedBaseKHz, uint16_t requestedStepKHz) {
+bool pcStartScan(uint32_t requestedBaseKHz, float requestedStepKHz) {
   if (SCANbut) {
     if (SCANpause) {
       SCANpause = false;
@@ -2294,14 +2295,31 @@ bool pcStartScan(uint32_t requestedBaseKHz, uint16_t requestedStepKHz) {
   int d = screenV * 40;
   const int visibleCount = 320 - (d * 2);
   if (requestedBaseKHz != 0 || requestedStepKHz != 0) {
-    const uint32_t requestedEndKHz = requestedBaseKHz +
-      ((uint32_t)(visibleCount - 1) * requestedStepKHz);
-    if (currentMode != FM || bandIdx != BAND_FM ||
-        requestedBaseKHz < 87500UL || requestedEndKHz > 108000UL ||
-        requestedStepKHz < 10 || requestedStepKHz > 1000 ||
-        (requestedStepKHz % 10) != 0) {
+    const bool fmRequest = currentMode == FM && bandIdx == BAND_FM;
+    const bool hamRequest = currentMode != FM &&
+      (bandIdx == BAND_40M || bandIdx == BAND_20M || bandIdx == BAND_14M);
+    const float bandMinKHz = fmRequest ?
+      band[bandIdx].minimumFreq * 10.0f : band[bandIdx].minimumFreq;
+    const float bandMaxKHz = fmRequest ?
+      band[bandIdx].maximumFreq * 10.0f : band[bandIdx].maximumFreq;
+    const bool invalidFmStep = fmRequest &&
+      (requestedStepKHz < 10 || requestedStepKHz > 1000 ||
+       fabsf((requestedStepKHz / 10.0f) -
+             roundf(requestedStepKHz / 10.0f)) > 0.0001f);
+    const bool invalidHamStep = hamRequest &&
+      (requestedStepKHz < 1.0f || requestedStepKHz > 100.0f ||
+       fabsf(requestedStepKHz - roundf(requestedStepKHz)) > 0.0001f);
+    if ((!fmRequest && !hamRequest) ||
+        requestedBaseKHz < bandMinKHz || requestedBaseKHz > bandMaxKHz ||
+        invalidFmStep || invalidHamStep) {
       return false;
     }
+
+    pcScanDataCount = min(visibleCount,
+      int(floorf((bandMaxKHz - requestedBaseKHz) / requestedStepKHz)) + 1);
+    if (pcScanDataCount < 2) return false;
+  } else {
+    pcScanDataCount = visibleCount;
   }
 
   SCANbut = true;
@@ -2337,11 +2355,17 @@ bool pcStartScan(uint32_t requestedBaseKHz, uint16_t requestedStepKHz) {
     currentMaxScanStep = maxSCANstep;
   }
 
-  if (requestedBaseKHz != 0 && requestedStepKHz != 0) {
-    // Le SI4735 exprime la frequence FM en pas de 10 kHz.
-    SCANstep = requestedStepKHz / 10.0f;
-    currentScanFreq = int((requestedBaseKHz / 10.0f) +
-      ((159 - d) * SCANstep) + 0.5f);
+  if (requestedBaseKHz != 0 && requestedStepKHz > 0) {
+    if (currentMode == FM) {
+      // Le SI4735 exprime la frequence FM en pas de 10 kHz.
+      SCANstep = requestedStepKHz / 10.0f;
+      currentScanFreq = int((requestedBaseKHz / 10.0f) +
+        ((159 - d) * SCANstep) + 0.5f);
+    } else {
+      SCANstep = requestedStepKHz;
+      currentScanFreq = int(requestedBaseKHz +
+        ((159 - d) * SCANstep) + 0.5f);
+    }
     currentMinScanStep = SCANstep;
     currentMaxScanStep = SCANstep;
   } else {
@@ -2390,6 +2414,7 @@ bool pcStopScan() {
   restoreMuteIfNeeded();
   SCANbut = false;
   SCANstep = 0;
+  pcScanDataCount = 0;
   DrawThla();
   return true;
 }
@@ -2413,7 +2438,9 @@ void pcSendScanData(Print &out) {
   }
 
   const int dCoord = screenV * 40;
-  const int visibleCount = 320 - (screenV * 80);
+  const int nativeVisibleCount = 320 - (screenV * 80);
+  const int visibleCount = (pcScanDataCount > 0) ?
+    min(pcScanDataCount, nativeVisibleCount) : nativeVisibleCount;
   float baseFreqKHz = currentScanFreq +
     ((0 - 159 + dCoord + deltaScanLine) * SCANstep);
   float stepKHz = SCANstep;
@@ -2631,10 +2658,10 @@ void processControlCommand(String cmd, Print &out) {
   } else if (upper.startsWith("SCAN=START,BASE_KHZ=")) {
     int stepToken = upper.indexOf(",STEP_KHZ=");
     uint32_t baseKHz = 0;
-    uint16_t stepKHz = 0;
+    float stepKHz = 0;
     if (stepToken > 20) {
       baseKHz = (uint32_t)cmd.substring(20, stepToken).toInt();
-      stepKHz = (uint16_t)cmd.substring(stepToken + 10).toInt();
+      stepKHz = cmd.substring(stepToken + 10).toFloat();
     }
     out.println(pcStartScan(baseKHz, stepKHz) ?
       "OK,SCAN,START" : "ERR,SCAN,PARAMETERS");

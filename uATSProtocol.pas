@@ -45,7 +45,8 @@ type
     class function SetSquelch(AValue: Integer): AnsiString; static;
     class function SetBFO(AValueHz: Integer): AnsiString; static;
     class function ScanStart: AnsiString; static;
-    class function ScanStartAt(AStartKHz, AStepKHz: Int64): AnsiString; static;
+    class function ScanStartAt(AStartKHz: Int64;
+      AStepKHz: Double): AnsiString; static;
     class function ScanStop: AnsiString; static;
     class function RequestScanData: AnsiString; static;
     class function IsPong(const AResponse: string): Boolean; static;
@@ -108,12 +109,15 @@ begin
   Result := 'SCAN=START'#10;
 end;
 
-class function TATSProtocol.ScanStartAt(AStartKHz,
-  AStepKHz: Int64): AnsiString;
+class function TATSProtocol.ScanStartAt(AStartKHz: Int64;
+  AStepKHz: Double): AnsiString;
+var
+  FS: TFormatSettings;
 begin
+  FS := TFormatSettings.Invariant;
   Result := AnsiString(
     'SCAN=START,BASE_KHZ=' + IntToStr(AStartKHz) +
-    ',STEP_KHZ=' + IntToStr(AStepKHz) + #10
+    ',STEP_KHZ=' + Format('%.3f', [AStepKHz], FS) + #10
   );
 end;
 

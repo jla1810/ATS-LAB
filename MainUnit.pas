@@ -226,6 +226,7 @@ type
     procedure SetModeByIndex(const AIndex: Integer);
     function IsFMBand: Boolean;
     function IsBroadcastFMActive: Boolean;
+    function IsSpectrumScanBandActive: Boolean;
     procedure EnforceFMBandMode;
     procedure LoadVisualAssets;
     procedure FreeVisualAssets;
@@ -278,6 +279,7 @@ type
     procedure ParseReceiverId(const ALine: string);
     procedure SpectrumStopRequest(Sender: TObject);
     procedure SpectrumScanEnded(Sender: TObject);
+    procedure SpectrumTuneRequested(Sender: TObject; AFrequencyKHz: Int64);
     procedure AbortSpectrumScan(const AReason: string);
   end;
 
@@ -449,6 +451,7 @@ FPowerOn := False;
   frmSpectrum := TfrmSpectrum.Create(Self);
   frmSpectrum.OnStopRequest := SpectrumStopRequest;
   frmSpectrum.OnScanEnd := SpectrumScanEnded;
+  frmSpectrum.OnTuneRequest := SpectrumTuneRequested;
   FLocked := False;
   InitializeHamMemories;
   InitializeRadioMemories;
@@ -506,6 +509,12 @@ end;
 
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
+  if frmSpectrum <> nil then
+  begin
+    frmSpectrum.OnStopRequest := nil;
+    frmSpectrum.OnScanEnd := nil;
+    frmSpectrum.OnTuneRequest := nil;
+  end;
   FreeAndNil(frmSpectrum);
 if FConnectionTimer <> nil then
     FConnectionTimer.Enabled := False;
@@ -1292,7 +1301,7 @@ begin
   if FButtonManager = nil then
     Exit;
 
-  CanScan := FPowerOn and IsBroadcastFMActive;
+  CanScan := FPowerOn and IsSpectrumScanBandActive;
   hsScan.Enabled := CanScan;
 
   if CanScan then
@@ -1724,6 +1733,13 @@ begin
     SameText(FMode, 'FM');
 end;
 
+function TfrmMain.IsSpectrumScanBandActive: Boolean;
+begin
+  Result := IsBroadcastFMActive or
+    (FHasCurrentHamBand and
+     (FCurrentHamBand in [hb40m, hb20m, hb15m]));
+end;
+
 procedure TfrmMain.EnforceFMBandMode;
 begin
   if not IsFMBand then
@@ -1810,11 +1826,42 @@ end;
 
 procedure TfrmMain.SpectrumScanEnded(Sender: TObject);
 begin
+  if (FATSConnection <> nil) and FATSConnection.IsAlive then
+    SendATSCommand(TATSProtocol.ScanStop, False);
   FScanEnabled := False;
   FScanStartTick := 0;
   FScanLastActivityTick := 0;
   UpdateModeLamps;
   UpdateDisplay;
+end;
+
+procedure TfrmMain.SpectrumTuneRequested(Sender: TObject;
+  AFrequencyKHz: Int64);
+var
+  MinHz, MaxHz: Int64;
+begin
+  if IsFrontPanelLocked or not FPowerOn or
+     not IsSpectrumScanBandActive or
+     (FATSConnection = nil) or not FATSConnection.IsAlive then
+    Exit;
+
+  GetActiveBandLimits(MinHz, MaxHz);
+  AFrequencyKHz := EnsureRange(AFrequencyKHz,
+    MinHz div 1000, MaxHz div 1000);
+  SendATSCommand(TATSProtocol.ScanStop, False);
+  FFrequencyHz := AFrequencyKHz * 1000;
+  FLocalControlUntil := GetTickCount64 + 1500;
+  if IsBroadcastFMActive then
+    FMode := 'FM'
+  else if FHasCurrentHamBand then
+    ApplyHamModeRules(FCurrentHamBand);
+  UpdateDisplay;
+  UpdateModeImage;
+  UpdateModeLamps;
+  SendATSCommand(TATSProtocol.SetFrequencyKHz(AFrequencyKHz));
+  SaveCurrentHamBandMemory;
+  if FInRadioBand then
+    SaveCurrentRadioBandMemory;
 end;
 
 procedure TfrmMain.AbortSpectrumScan(const AReason: string);
@@ -1846,8 +1893,9 @@ const
   CScanPointCount = 320;
 var
   StartText, StepText: string;
-  StartMHz: Double;
-  StartKHz, StepKHz, EndKHz: Int64;
+  StartMHz, StepKHz, EndKHz: Double;
+  ScanPointCount: Integer;
+  StartKHz, MinHz, MaxHz: Int64;
   LocalFormat: TFormatSettings;
 begin
   if IsFrontPanelLocked then
@@ -1861,8 +1909,12 @@ begin
 
   if not FScanEnabled then
   begin
-    StartText := FormatFloat('0.000', FFrequencyHz / 1000000);
-    if not InputQuery('PARAMETRES DU SCAN FM',
+    GetActiveBandLimits(MinHz, MaxHz);
+    if IsBroadcastFMActive then
+      StartText := FormatFloat('0.000', FFrequencyHz / 1000000)
+    else
+      StartText := FormatFloat('0.000', MinHz / 1000000);
+    if not InputQuery('PARAMETRES DU SPECTRUM ANALYZER',
       'Frequence de depart (MHz) :', StartText) then
       Exit;
 
@@ -1876,26 +1928,56 @@ begin
     end;
     StartKHz := Round(StartMHz * 1000);
 
-    StepText := '10';
-    if not InputQuery('PARAMETRES DU SCAN FM',
-      'Pas (kHz, multiple de 10) :', StepText) then
+    if IsBroadcastFMActive then
+      StepText := '10'
+    else
+      StepText := '1';
+    if not InputQuery('PARAMETRES DU SPECTRUM ANALYZER',
+      'Pas (kHz) :', StepText) then
       Exit;
-    if not TryStrToInt64(Trim(StepText), StepKHz) or
-       (StepKHz < 10) or (StepKHz > 1000) or ((StepKHz mod 10) <> 0) then
+    StepText := StringReplace(Trim(StepText), '.',
+      LocalFormat.DecimalSeparator, [rfReplaceAll]);
+    if not TryStrToFloat(StepText, StepKHz, LocalFormat) then
     begin
-      MessageDlg('Le pas doit etre un multiple de 10 kHz, entre 10 et 1000 kHz.',
+      MessageDlg('Pas de scan invalide.', mtError, [mbOK], 0);
+      Exit;
+    end;
+    if IsBroadcastFMActive and
+       ((StepKHz < 10) or (StepKHz > 1000) or
+        (Abs((StepKHz / 10) - Round(StepKHz / 10)) > 0.0001)) then
+    begin
+      MessageDlg('En FM, le pas doit etre un multiple de 10 kHz, entre 10 et 1000 kHz.',
+        mtError, [mbOK], 0);
+      Exit;
+    end;
+    if (not IsBroadcastFMActive) and
+       ((StepKHz < 1) or (StepKHz > 100) or
+        (Abs(StepKHz - Round(StepKHz)) > 0.0001)) then
+    begin
+      MessageDlg('Sur les bandes HAM, le pas doit etre un nombre entier de kHz, entre 1 et 100.',
         mtError, [mbOK], 0);
       Exit;
     end;
 
-    EndKHz := StartKHz + ((CScanPointCount - 1) * StepKHz);
-    if (StartKHz < 87500) or (StartKHz > 108000) or
-       (EndKHz > 108000) then
+    ScanPointCount := Integer(
+      Trunc(((MaxHz div 1000) - StartKHz) / StepKHz) + 1);
+    if ScanPointCount > CScanPointCount then
+      ScanPointCount := CScanPointCount;
+    if ScanPointCount < 2 then
+    begin
+      MessageDlg('La plage restante est trop courte pour effectuer le scan.',
+        mtError, [mbOK], 0);
+      Exit;
+    end;
+    EndKHz := StartKHz + ((ScanPointCount - 1) * StepKHz);
+    if (StartKHz * 1000 < MinHz) or (StartKHz * 1000 > MaxHz) or
+       (EndKHz * 1000 > MaxHz + 0.1) then
     begin
       MessageDlg(Format(
         'Plage invalide : le scan irait de %.3f a %.3f MHz.' + sLineBreak +
-        'La plage FM autorisee est 87.500 a 108.000 MHz.',
-        [StartKHz / 1000, EndKHz / 1000]), mtError, [mbOK], 0);
+        'Limites de la bande : %.3f a %.3f MHz.',
+        [StartKHz / 1000, EndKHz / 1000,
+         MinHz / 1000000, MaxHz / 1000000]), mtError, [mbOK], 0);
       Exit;
     end;
 
