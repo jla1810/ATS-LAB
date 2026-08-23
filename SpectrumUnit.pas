@@ -183,15 +183,20 @@ begin
   begin
     Parts := L.Split([',']);
     if Length(Parts) < 4 then Exit;
-    StartIndex := StrToIntDef(Parts[1], 0);
-    if StartIndex < 0 then
-      StartIndex := 0;
+    if not TryStrToInt(Trim(Parts[1]), StartIndex) or
+       (StartIndex < 0) or (StartIndex >= FCount) then
+      Exit;
     DataIndex := StartIndex;
     I := 2;
     while (I + 1 < Length(Parts)) and (DataIndex < FCount) do
     begin
-      R := StrToIntDef(Trim(Parts[I]), 0);
-      S := StrToIntDef(Trim(Parts[I + 1]), 0);
+      if not TryStrToInt(Trim(Parts[I]), R) or
+         not TryStrToInt(Trim(Parts[I + 1]), S) then
+      begin
+        Inc(DataIndex);
+        Inc(I, 2);
+        Continue;
+      end;
       FRSSI[DataIndex] := EnsureRange(R, 0, 100);
       FSNR[DataIndex] := EnsureRange(S, 0, 100);
       Inc(DataIndex);

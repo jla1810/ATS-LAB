@@ -975,7 +975,8 @@ begin
   hsLSB.Enabled := AllowLSB;
   hsUSB.Enabled := AllowUSB;
   hsCW.Enabled := AllowCW;
-  hsCWR.Enabled := AllowCW;
+  { Le firmware fourni ne possède pas de mode CW-R distinct. }
+  hsCWR.Enabled := False;
   hsFM.Enabled := AllowFM;
 
   if hsAM.Enabled then hsAM.Cursor := crHandPoint else hsAM.Cursor := crDefault;
@@ -1125,7 +1126,7 @@ begin
   hsLSB.Enabled := not OnlyAM;
   hsUSB.Enabled := not OnlyAM;
   hsCW.Enabled := not OnlyAM;
-  hsCWR.Enabled := not OnlyAM;
+  hsCWR.Enabled := False;
 
   if hsAM.Enabled then hsAM.Cursor := crHandPoint else hsAM.Cursor := crDefault;
   if hsFM.Enabled then hsFM.Cursor := crHandPoint else hsFM.Cursor := crDefault;
@@ -1258,7 +1259,7 @@ begin
   hsLSB.Enabled := not FMOnly;
   hsUSB.Enabled := not FMOnly;
   hsCW.Enabled := not FMOnly;
-  hsCWR.Enabled := not FMOnly;
+  hsCWR.Enabled := False;
 
   hsFM.Enabled := True;
 
@@ -1764,6 +1765,9 @@ procedure TfrmMain.SetModeByIndex(const AIndex: Integer);
 const
   Modes: array[0..5] of string = ('AM', 'FM', 'USB', 'LSB', 'CW', 'CW-R');
 begin
+  if AIndex = 5 then
+    Exit;
+
   if IsFMBand and (AIndex <> 1) then
     Exit;
 
@@ -2204,7 +2208,7 @@ var
   NewMode: string;
   ReceivedMode: string;
   NeedModeCorrection: Boolean;
-  MinHz, MaxHz: Int64;
+  MinHz, MaxHz, RemoteFrequencyHz: Int64;
 begin
   if not AStatus.Valid then
     Exit;
@@ -2227,7 +2231,12 @@ begin
   end;
 
   if FRemoteFrequencyConfirmCount >= 2 then
-    FFrequencyHz := AStatus.FrequencyKHz * 1000;
+  begin
+    RemoteFrequencyHz := AStatus.FrequencyKHz * 1000;
+    GetActiveBandLimits(MinHz, MaxHz);
+    if (RemoteFrequencyHz >= MinHz) and (RemoteFrequencyHz <= MaxHz) then
+      FFrequencyHz := RemoteFrequencyHz;
+  end;
 
   NewMode := UpperCase(Trim(AStatus.Mode));
   if NewMode = 'CWR' then

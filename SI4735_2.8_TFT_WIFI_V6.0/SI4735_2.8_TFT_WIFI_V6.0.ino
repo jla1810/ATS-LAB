@@ -296,6 +296,10 @@ long elapsedBat     = 0;
 bool  SCANbut             = false;
 int   currentScanFreq;
 int   pcScanDataCount = 0;
+uint16_t pcScanRestoreFrequency = 0;
+int pcScanRestoreBFO = 0;
+int pcScanRestoreManualBFO = 0;
+bool pcScanRestoreValid = false;
 unsigned long scanTuneStarted = 0;
 const unsigned long SCAN_SETTLE_FM_MS = 35;
 const unsigned long SCAN_SETTLE_HAM_MS = 60;
@@ -575,7 +579,7 @@ typedef struct // Band data
 } Band;
 
 Band band[] = {
-  {   "FM", FM_BAND_TYPE,  FM,  6400, 10800,  9920, 10, 0, 0}, //  FM          0
+  {   "FM", FM_BAND_TYPE,  FM,  8750, 10800,  9920, 10, 0, 0}, //  FM          0
   {   "LW", LW_BAND_TYPE,  AM,   100,   514,   198,  9, 0, 0}, //  LW          1
   {   "MW", MW_BAND_TYPE,  AM,   514,  1800,  1395,  9, 0, 0}, //  MW          2
   { "800M", LW_BAND_TYPE,  AM,  280,   470,   284,  1, 0, 0}, // Ham  800M    3
@@ -1454,7 +1458,10 @@ void setup() {
   }
   screenRotate();
 
-  if (VHFon) band[0].minimumFreq = 6400; else band[0].minimumFreq = 8750;
+  VHFon = false;
+  band[0].minimumFreq = 8750;
+  if (band[0].currentFreq < band[0].minimumFreq)
+    band[0].currentFreq = band[0].minimumFreq;
 
   for (int i = 0; i <= lastMemoBank; i++) {
     if (i > lastMemoBankFile) {
@@ -2233,7 +2240,7 @@ void pcSendStatus(Print &out) {
 
 int pcFindBandForFrequency(uint32_t freqKHz, uint16_t internalFreq) {
 
-  if (freqKHz >= 64000UL && freqKHz <= 108000UL)
+  if (freqKHz >= 87500UL && freqKHz <= 108000UL)
     return BAND_FM;
 
   for (int i = 1; i < BAND_SW; i++) {
@@ -2247,7 +2254,7 @@ int pcFindBandForFrequency(uint32_t freqKHz, uint16_t internalFreq) {
 
 bool pcSetFrequencyKHz(uint32_t freqKHz) {
   uint16_t internalFreq;
-  if (freqKHz >= 64000UL && freqKHz <= 108000UL) internalFreq = (uint16_t)(freqKHz / 10UL);
+  if (freqKHz >= 87500UL && freqKHz <= 108000UL) internalFreq = (uint16_t)(freqKHz / 10UL);
   else if (freqKHz >= 100UL && freqKHz <= 30000UL) internalFreq = (uint16_t)freqKHz;
   else return false;
 
@@ -2327,6 +2334,10 @@ bool pcStartScan(uint32_t requestedBaseKHz, float requestedStepKHz) {
 
   SCANbut = true;
   ScanAGC = AGCgain;
+  pcScanRestoreFrequency = si4735.getFrequency();
+  pcScanRestoreBFO = currentBFO;
+  pcScanRestoreManualBFO = currentBFOmanu;
+  pcScanRestoreValid = true;
   currentScanFreq = si4735.getFrequency();
 
   if (isSSBLikeMode()) {
@@ -2411,11 +2422,23 @@ bool pcStopScan() {
 
   SCANpause = true;
   pauseSCAN();
-  band[bandIdx].currentFreq = si4735.getFrequency();
-  if (isSSBLikeMode())
-    band[bandIdx].lastBFO = currentBFO = 0;
-  restoreMuteIfNeeded();
   SCANbut = false;
+  if (pcScanRestoreValid) {
+    commSetFreq(pcScanRestoreFrequency);
+    band[bandIdx].currentFreq = pcScanRestoreFrequency;
+    currentFrequency = pcScanRestoreFrequency;
+    previousFrequency = pcScanRestoreFrequency;
+    if (isSSBLikeMode()) {
+      currentBFO = pcScanRestoreBFO;
+      freqDec = currentBFO;
+      band[bandIdx].lastBFO = currentBFO;
+      currentBFOmanu = pcScanRestoreManualBFO;
+      band[bandIdx].lastmanuBFO = currentBFOmanu;
+      applyCurrentBFO();
+    }
+  }
+  pcScanRestoreValid = false;
+  restoreMuteIfNeeded();
   SCANstep = 0;
   pcScanDataCount = 0;
   DrawThla();
@@ -7371,7 +7394,7 @@ void displSETUP() {
   switch (pageSetup) {
     case 0:
       tft.drawString("SI473X", 240 + d, 40);
-      displSETUPitem     ("FM start 64 MHz  ", 80,  prevVHFon, (VHFon != prevVHFon));
+      displSETUPitem     ("FM start 87.5 MHz", 80,  false, false);
       displSETUPitem     ("Seek AM 1 KHz    ", 120,  prevseekAccuracy, (seekAccuracy != prevseekAccuracy));
       break;
     case 1:
@@ -7448,7 +7471,7 @@ void displSETUPitemValue(String itemName, int pos, String state, bool changed) {
 void defaultSETUP() {
 // ============================================================================
   if (confirm("LOAD DEFAULT?") == 1) {
-    prevVHFon = true;
+    prevVHFon = false;
     prevseekAccuracy = false;
 
     prevRDSalways = false;
@@ -7485,7 +7508,7 @@ void changeSETUP(int pos) {
     case 0:
       switch (pos) {
         case 1:
-          prevVHFon = !prevVHFon;
+          prevVHFon = false;
           break;
         case 2:
           prevseekAccuracy = !prevseekAccuracy;
@@ -7588,7 +7611,7 @@ void saveSETUP() {
     if (n == 1) {
       if (VHFon != prevVHFon) {
         VHFon = prevVHFon;
-        if (VHFon) band[0].minimumFreq = 6400; else band[0].minimumFreq = 8750;
+        band[0].minimumFreq = 8750;
         si4735.setSeekFmLimits(band[0].minimumFreq, band[0].maximumFreq);
         if (!bandIdx) si4735.setFM(band[0].minimumFreq, band[0].maximumFreq, band[0].currentFreq, band[0].currentStep);
       }
