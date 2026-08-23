@@ -2,13 +2,13 @@ object frmSpectrum: TfrmSpectrum
   Left = 0
   Top = 0
   Caption = 'ATS LAB - SPECTRUM ANALYZER'
-  ClientHeight = 460
+  ClientHeight = 560
   ClientWidth = 920
   Color = 1184018
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clSilver
   Font.Height = -13
-  Font.Name = 'Segoe UI'
+  Font.Name = 'Georgia'
   Font.Style = []
   Position = poScreenCenter
   OnClose = FormClose
@@ -29,7 +29,7 @@ object frmSpectrum: TfrmSpectrum
   end
   object lblRange: TLabel
     Left = 20
-    Top = 42
+    Top = 104
     Width = 245
     Height = 17
     Caption = 'En attente des donnees du scanner ATS...'
@@ -41,8 +41,8 @@ object frmSpectrum: TfrmSpectrum
     ParentFont = False
   end
   object lblPeak: TLabel
-    Left = 530
-    Top = 42
+    Left = 540
+    Top = 104
     Width = 70
     Height = 17
     Caption = 'PIC : ---'
@@ -55,18 +55,160 @@ object frmSpectrum: TfrmSpectrum
   end
   object pbSpectrum: TPaintBox
     Left = 20
-    Top = 70
+    Top = 132
     Width = 880
-    Height = 340
+    Height = 370
     OnPaint = pbSpectrumPaint
   end
   object btnClose: TButton
     Left = 805
-    Top = 420
+    Top = 518
     Width = 95
     Height = 30
     Caption = 'FERMER'
-    TabOrder = 0
+    TabOrder = 6
     OnClick = btnCloseClick
+  end
+  object lblStartFrequency: TLabel
+    Left = 20
+    Top = 51
+    Width = 160
+    Height = 17
+    Caption = 'FREQUENCE DE DEPART'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 11579568
+    Font.Height = -13
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object lblStartUnit: TLabel
+    Left = 300
+    Top = 55
+    Width = 27
+    Height = 15
+    Caption = 'MHz'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 7848653
+    Font.Height = -12
+    Font.Name = 'Consolas'
+    Font.Style = []
+    ParentFont = False
+  end
+  object lblStep: TLabel
+    Left = 352
+    Top = 51
+    Width = 28
+    Height = 17
+    Caption = 'PAS'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 11579568
+    Font.Height = -13
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object lblStepUnit: TLabel
+    Left = 472
+    Top = 55
+    Width = 21
+    Height = 15
+    Caption = 'kHz'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 7848653
+    Font.Height = -12
+    Font.Name = 'Consolas'
+    Font.Style = []
+    ParentFont = False
+  end
+  object edtStartFrequency: TEdit
+    Left = 184
+    Top = 47
+    Width = 108
+    Height = 25
+    Color = 1118481
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 11579568
+    Font.Height = -14
+    Font.Name = 'Consolas'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 0
+    Text = '7.000'
+  end
+  object edtStep: TEdit
+    Left = 390
+    Top = 47
+    Width = 74
+    Height = 25
+    Color = 1118481
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 11579568
+    Font.Height = -14
+    Font.Name = 'Consolas'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 1
+    Text = '1'
+  end
+  object btnStart: TButton
+    Left = 520
+    Top = 44
+    Width = 82
+    Height = 32
+    Caption = 'START'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 2
+    OnClick = btnStartClick
+  end
+  object btnPause: TButton
+    Left = 608
+    Top = 44
+    Width = 82
+    Height = 32
+    Caption = 'PAUSE'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 3
+    OnClick = btnPauseClick
+  end
+  object btnResume: TButton
+    Left = 696
+    Top = 44
+    Width = 96
+    Height = 32
+    Caption = 'RESTART'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 4
+    OnClick = btnResumeClick
+  end
+  object btnStop: TButton
+    Left = 798
+    Top = 44
+    Width = 82
+    Height = 32
+    Caption = 'STOP'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 5
+    OnClick = btnStopClick
   end
 end

@@ -54560,7 +54560,7 @@ object frmMain: TfrmMain
     OnClick = hsLockClick
   end
   object imode: TImage
-    Left = 856
+    Left = 870
     Top = 125
     Width = 179
     Height = 95

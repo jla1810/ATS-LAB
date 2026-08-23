@@ -13,6 +13,8 @@ type
   TSpectrumScanEndEvent = procedure(Sender: TObject) of object;
   TSpectrumTuneEvent = procedure(Sender: TObject;
     AFrequencyKHz: Int64) of object;
+  TSpectrumStartEvent = procedure(Sender: TObject;
+    AStartMHz, AStepKHz: Double) of object;
 
   TfrmSpectrum = class(TForm)
     pbSpectrum: TPaintBox;
@@ -20,12 +22,26 @@ type
     lblRange: TLabel;
     lblPeak: TLabel;
     btnClose: TButton;
+    lblStartFrequency: TLabel;
+    edtStartFrequency: TEdit;
+    lblStartUnit: TLabel;
+    lblStep: TLabel;
+    edtStep: TEdit;
+    lblStepUnit: TLabel;
+    btnStart: TButton;
+    btnPause: TButton;
+    btnResume: TButton;
+    btnStop: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure pbSpectrumPaint(Sender: TObject);
     procedure pbSpectrumMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
     procedure btnCloseClick(Sender: TObject);
+    procedure btnStartClick(Sender: TObject);
+    procedure btnPauseClick(Sender: TObject);
+    procedure btnResumeClick(Sender: TObject);
+    procedure btnStopClick(Sender: TObject);
   private
     FRSSI: TArray<Integer>;
     FSNR: TArray<Integer>;
@@ -41,6 +57,9 @@ type
     FOnStopRequest: TSpectrumStopEvent;
     FOnScanEnd: TSpectrumScanEndEvent;
     FOnTuneRequest: TSpectrumTuneEvent;
+    FOnStartRequest: TSpectrumStartEvent;
+    FOnPauseRequest: TSpectrumStopEvent;
+    FOnResumeRequest: TSpectrumStopEvent;
     procedure ClearData;
     procedure UpdateInfo;
     procedure UpdateProgress;
@@ -50,10 +69,15 @@ type
     procedure BeginScan;
     procedure AbortScan(const AReason: string);
     procedure ProcessScanLine(const ALine: string);
+    procedure PrepareScan(const AStartMHz, AStepKHz: Double);
+    procedure SetPaused(const APaused: Boolean);
     property Receiving: Boolean read FReceiving;
     property OnStopRequest: TSpectrumStopEvent read FOnStopRequest write FOnStopRequest;
     property OnScanEnd: TSpectrumScanEndEvent read FOnScanEnd write FOnScanEnd;
     property OnTuneRequest: TSpectrumTuneEvent read FOnTuneRequest write FOnTuneRequest;
+    property OnStartRequest: TSpectrumStartEvent read FOnStartRequest write FOnStartRequest;
+    property OnPauseRequest: TSpectrumStopEvent read FOnPauseRequest write FOnPauseRequest;
+    property OnResumeRequest: TSpectrumStopEvent read FOnResumeRequest write FOnResumeRequest;
   end;
 
 var
@@ -87,6 +111,9 @@ begin
   pbSpectrum.ShowHint := True;
   lblRange.Caption := 'En attente des donnees du scanner ATS...';
   lblPeak.Caption := 'PIC : ---';
+  btnPause.Enabled := False;
+  btnResume.Enabled := False;
+  btnStop.Enabled := False;
 end;
 
 procedure TfrmSpectrum.ClearData;
@@ -107,6 +134,10 @@ end;
 procedure TfrmSpectrum.AbortScan(const AReason: string);
 begin
   FReceiving := False;
+  btnStart.Enabled := True;
+  btnPause.Enabled := False;
+  btnResume.Enabled := False;
+  btnStop.Enabled := False;
   if Trim(AReason) <> '' then
     lblRange.Caption := AReason;
   pbSpectrum.Invalidate;
@@ -119,6 +150,36 @@ begin
   lblPeak.Caption := 'PIC : ---';
   Show;
   BringToFront;
+  btnStart.Enabled := False;
+  btnPause.Enabled := True;
+  btnResume.Enabled := False;
+  btnStop.Enabled := True;
+end;
+
+procedure TfrmSpectrum.PrepareScan(const AStartMHz, AStepKHz: Double);
+var
+  FS: TFormatSettings;
+begin
+  FS := TFormatSettings.Create;
+  edtStartFrequency.Text := FormatFloat('0.000', AStartMHz, FS);
+  edtStep.Text := FormatFloat('0.###', AStepKHz, FS);
+  btnStart.Enabled := True;
+  btnPause.Enabled := False;
+  btnResume.Enabled := False;
+  btnStop.Enabled := False;
+  Show;
+  BringToFront;
+end;
+
+procedure TfrmSpectrum.SetPaused(const APaused: Boolean);
+begin
+  btnPause.Enabled := not APaused;
+  btnResume.Enabled := APaused;
+  btnStop.Enabled := True;
+  if APaused then
+    lblRange.Caption := 'Scan en pause'
+  else
+    lblRange.Caption := 'Reprise du scan...';
 end;
 
 procedure TfrmSpectrum.FormClose(Sender: TObject; var Action: TCloseAction);
@@ -131,6 +192,45 @@ end;
 procedure TfrmSpectrum.btnCloseClick(Sender: TObject);
 begin
   Close;
+end;
+
+procedure TfrmSpectrum.btnStartClick(Sender: TObject);
+var
+  StartMHz, StepKHz: Double;
+  StartText, StepText: string;
+  FS: TFormatSettings;
+begin
+  FS := TFormatSettings.Create;
+  StartText := StringReplace(Trim(edtStartFrequency.Text), '.',
+    FS.DecimalSeparator, [rfReplaceAll]);
+  StepText := StringReplace(Trim(edtStep.Text), '.',
+    FS.DecimalSeparator, [rfReplaceAll]);
+  if not TryStrToFloat(StartText, StartMHz, FS) or
+     not TryStrToFloat(StepText, StepKHz, FS) then
+  begin
+    MessageDlg('Fréquence de départ ou pas invalide.', mtError, [mbOK], 0);
+    Exit;
+  end;
+  if Assigned(FOnStartRequest) then
+    FOnStartRequest(Self, StartMHz, StepKHz);
+end;
+
+procedure TfrmSpectrum.btnPauseClick(Sender: TObject);
+begin
+  if Assigned(FOnPauseRequest) then
+    FOnPauseRequest(Self);
+end;
+
+procedure TfrmSpectrum.btnResumeClick(Sender: TObject);
+begin
+  if Assigned(FOnResumeRequest) then
+    FOnResumeRequest(Self);
+end;
+
+procedure TfrmSpectrum.btnStopClick(Sender: TObject);
+begin
+  if Assigned(FOnStopRequest) then
+    FOnStopRequest(Self);
 end;
 
 function TfrmSpectrum.ValueAfterKey(const ALine, AKey: string): string;
@@ -211,6 +311,10 @@ begin
   if SameText(L, 'SCANEND') then
   begin
     FReceiving := False;
+    btnStart.Enabled := True;
+    btnPause.Enabled := False;
+    btnResume.Enabled := False;
+    btnStop.Enabled := False;
     DetectPeaks;
     UpdateInfo;
     pbSpectrum.Invalidate;

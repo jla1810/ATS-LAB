@@ -198,6 +198,7 @@ type
     FDragging: Boolean;
     FLastMouseY: Integer;
     FScanEnabled: Boolean;
+    FScanPaused: Boolean;
     FScanStartTick: UInt64;
     FScanLastActivityTick: UInt64;
     FLocked: Boolean;
@@ -247,6 +248,7 @@ type
     procedure SelectHamBand(const ABand: THamBandIndex);
     procedure ApplyHamModeRules(const ABand: THamBandIndex);
     procedure GetActiveBandLimits(out AMinHz, AMaxHz: Int64);
+    procedure SelectBandForDirectFrequency(const AFrequencyHz: Int64);
     procedure SyncBandFromStatus(const ABand: string);
     procedure UpdateKnobFrame(const ADirection: Integer);
     procedure SetMeterLevel(const ALevel: Integer);
@@ -278,6 +280,10 @@ type
     procedure RequestReceiverId;
     procedure ParseReceiverId(const ALine: string);
     procedure SpectrumStopRequest(Sender: TObject);
+    procedure SpectrumStartRequest(Sender: TObject;
+      AStartMHz, AStepKHz: Double);
+    procedure SpectrumPauseRequest(Sender: TObject);
+    procedure SpectrumResumeRequest(Sender: TObject);
     procedure SpectrumScanEnded(Sender: TObject);
     procedure SpectrumTuneRequested(Sender: TObject; AFrequencyKHz: Int64);
     procedure AbortSpectrumScan(const AReason: string);
@@ -446,12 +452,16 @@ FPowerOn := False;
   FMode := 'USB';
   FDragging := False;
   FScanEnabled := False;
+  FScanPaused := False;
   FScanStartTick := 0;
   FScanLastActivityTick := 0;
   frmSpectrum := TfrmSpectrum.Create(Self);
   frmSpectrum.OnStopRequest := SpectrumStopRequest;
   frmSpectrum.OnScanEnd := SpectrumScanEnded;
   frmSpectrum.OnTuneRequest := SpectrumTuneRequested;
+  frmSpectrum.OnStartRequest := SpectrumStartRequest;
+  frmSpectrum.OnPauseRequest := SpectrumPauseRequest;
+  frmSpectrum.OnResumeRequest := SpectrumResumeRequest;
   FLocked := False;
   InitializeHamMemories;
   InitializeRadioMemories;
@@ -514,6 +524,9 @@ begin
     frmSpectrum.OnStopRequest := nil;
     frmSpectrum.OnScanEnd := nil;
     frmSpectrum.OnTuneRequest := nil;
+    frmSpectrum.OnStartRequest := nil;
+    frmSpectrum.OnPauseRequest := nil;
+    frmSpectrum.OnResumeRequest := nil;
   end;
   FreeAndNil(frmSpectrum);
 if FConnectionTimer <> nil then
@@ -1579,6 +1592,97 @@ begin
   end;
 end;
 
+procedure TfrmMain.SelectBandForDirectFrequency(const AFrequencyHz: Int64);
+const
+  CDefaultHamMode: array[THamBandIndex] of string = (
+    'LSB', 'LSB', 'LSB', 'USB', 'USB',
+    'USB', 'USB', 'USB', 'USB'
+  );
+  CHamBandName: array[THamBandIndex] of string = (
+    '160', '80', '40', '20', '17', '15', '12', '10', 'CB'
+  );
+  CRadioDefaultMode: array[TRadioBandIndex] of string = (
+    'AM', 'AM', 'AM', 'FM'
+  );
+  CHamCommands: array[0..8] of string = (
+    'HAM160', 'HAM80', 'HAM40', 'HAM20', 'HAM17',
+    'HAM15', 'HAM12', 'HAM10', 'CB'
+  );
+var
+  HamBand: THamBandIndex;
+  RadioBand: TRadioBandIndex;
+  I: Integer;
+  Found: Boolean;
+begin
+  SaveCurrentHamBandMemory;
+  SaveCurrentRadioBandMemory;
+  FFrequencyHz := AFrequencyHz;
+
+  Found := False;
+  for HamBand := Low(THamBandIndex) to High(THamBandIndex) do
+  begin
+    if (AFrequencyHz >= CHamMin[HamBand]) and
+       (AFrequencyHz <= CHamMax[HamBand]) then
+    begin
+      FCurrentHamBand := HamBand;
+      FHamBand := CHamBandName[HamBand];
+      FHasCurrentHamBand := True;
+      FHasCurrentRadioBand := False;
+      FInRadioBand := False;
+      if FHamMemories[HamBand].Initialized then
+        FMode := FHamMemories[HamBand].Mode
+      else
+        FMode := CDefaultHamMode[HamBand];
+      ApplyHamModeRules(HamBand);
+      UpdateHamButtons;
+      Found := True;
+      Break;
+    end;
+  end;
+
+  if not Found then
+  begin
+    for RadioBand := Low(TRadioBandIndex) to High(TRadioBandIndex) do
+    begin
+      if (AFrequencyHz >= CRadioMin[RadioBand]) and
+         (AFrequencyHz <= CRadioMax[RadioBand]) then
+      begin
+        FCurrentRadioBand := RadioBand;
+        FHasCurrentRadioBand := True;
+        FHasCurrentHamBand := False;
+        FInRadioBand := True;
+        if FRadioMemories[RadioBand].Initialized then
+          FMode := FRadioMemories[RadioBand].Mode
+        else
+          FMode := CRadioDefaultMode[RadioBand];
+        ApplyRadioModeRules(RadioBand);
+        UpdateRadioButtons;
+        Found := True;
+        Break;
+      end;
+    end;
+  end;
+
+  if not Found then
+  begin
+    { Fréquence prise en charge par le tuner mais sans bouton de bande dédié. }
+    FHasCurrentHamBand := False;
+    FHasCurrentRadioBand := False;
+    FInRadioBand := False;
+    FHamBand := '';
+    FMode := 'AM';
+    if FButtonManager <> nil then
+    begin
+      for I := Low(CHamCommands) to High(CHamCommands) do
+        FButtonManager.SetState(CHamCommands[I], False);
+      FButtonManager.SetState('RADIO_LW', False);
+      FButtonManager.SetState('RADIO_MW', False);
+      FButtonManager.SetState('RADIO_SW', False);
+    end;
+    UpdateModeButtons;
+  end;
+end;
+
 procedure TfrmMain.SyncBandFromStatus(const ABand: string);
 var B: string;
 begin
@@ -1588,8 +1692,8 @@ begin
   else if (B='80') or (B='80M') or (B='80 M') then begin FCurrentHamBand:=hb80m; FHamBand:='80'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
   else if (B='40') or (B='40M') or (B='40 M') then begin FCurrentHamBand:=hb40m; FHamBand:='40'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
   else if (B='20') or (B='20M') or (B='20 M') then begin FCurrentHamBand:=hb20m; FHamBand:='20'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
-  else if (B='17') or (B='17M') or (B='17 M') then begin FCurrentHamBand:=hb17m; FHamBand:='17'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
-  else if (B='15') or (B='15M') or (B='15 M') then begin FCurrentHamBand:=hb15m; FHamBand:='15'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
+  else if (B='17') or (B='17M') or (B='17 M') or (B='16M') then begin FCurrentHamBand:=hb17m; FHamBand:='17'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
+  else if (B='15') or (B='15M') or (B='15 M') or (B='14M') then begin FCurrentHamBand:=hb15m; FHamBand:='15'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
   else if (B='12') or (B='12M') or (B='12 M') then begin FCurrentHamBand:=hb12m; FHamBand:='12'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
   else if (B='10') or (B='10M') or (B='10 M') then begin FCurrentHamBand:=hb10m; FHamBand:='10'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
   else if B='CB' then begin FCurrentHamBand:=hbCB; FHamBand:='CB'; FHasCurrentHamBand:=True; FHasCurrentRadioBand:=False; FInRadioBand:=False; UpdateHamButtons; end
@@ -1833,6 +1937,7 @@ begin
   if (FATSConnection <> nil) and FATSConnection.IsAlive then
     SendATSCommand(TATSProtocol.ScanStop, False);
   FScanEnabled := False;
+  FScanPaused := False;
   FScanStartTick := 0;
   FScanLastActivityTick := 0;
   UpdateModeLamps;
@@ -1874,6 +1979,7 @@ begin
     SendATSCommand(TATSProtocol.ScanStop, False);
 
   FScanEnabled := False;
+  FScanPaused := False;
   FScanStartTick := 0;
   FScanLastActivityTick := 0;
 
@@ -1891,16 +1997,115 @@ begin
     AbortSpectrumScan('Scan arrêté par l''utilisateur.');
 end;
 
+procedure TfrmMain.SpectrumPauseRequest(Sender: TObject);
+begin
+  if not FScanEnabled or FScanPaused then
+    Exit;
+  if SendATSCommand(TATSProtocol.ScanPause, False) then
+  begin
+    FScanPaused := True;
+    if frmSpectrum <> nil then
+      frmSpectrum.SetPaused(True);
+  end;
+end;
 
-procedure TfrmMain.hsScanClick(Sender: TObject);
+procedure TfrmMain.SpectrumResumeRequest(Sender: TObject);
+begin
+  if not FScanEnabled or not FScanPaused then
+    Exit;
+  if SendATSCommand(TATSProtocol.ScanResume, False) then
+  begin
+    FScanPaused := False;
+    FScanStartTick := GetTickCount64;
+    FScanLastActivityTick := FScanStartTick;
+    if frmSpectrum <> nil then
+      frmSpectrum.SetPaused(False);
+  end;
+end;
+
+procedure TfrmMain.SpectrumStartRequest(Sender: TObject;
+  AStartMHz, AStepKHz: Double);
 const
   CScanPointCount = 320;
 var
-  StartText, StepText: string;
-  StartMHz, StepKHz, EndKHz: Double;
+  EndKHz: Double;
   ScanPointCount: Integer;
   StartKHz, MinHz, MaxHz: Int64;
-  LocalFormat: TFormatSettings;
+begin
+  if IsFrontPanelLocked or not FPowerOn or
+     (FATSConnection = nil) or not FATSConnection.IsAlive then
+    Exit;
+
+  if FScanEnabled then
+    AbortSpectrumScan('Redémarrage du scan.');
+
+  GetActiveBandLimits(MinHz, MaxHz);
+  StartKHz := Round(AStartMHz * 1000);
+
+  if IsBroadcastFMActive and
+     ((AStepKHz < 10) or (AStepKHz > 1000) or
+      (Abs((AStepKHz / 10) - Round(AStepKHz / 10)) > 0.0001)) then
+  begin
+    MessageDlg('En FM, le pas doit être un multiple de 10 kHz, entre 10 et 1000 kHz.',
+      mtError, [mbOK], 0);
+    Exit;
+  end;
+  if (not IsBroadcastFMActive) and
+     ((AStepKHz < 1) or (AStepKHz > 100) or
+      (Abs(AStepKHz - Round(AStepKHz)) > 0.0001)) then
+  begin
+    MessageDlg('Sur les bandes HAM, le pas doit être un nombre entier de kHz, entre 1 et 100.',
+      mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  ScanPointCount := Integer(
+    Trunc(((MaxHz div 1000) - StartKHz) / AStepKHz) + 1);
+  if ScanPointCount > CScanPointCount then
+    ScanPointCount := CScanPointCount;
+  if ScanPointCount < 2 then
+  begin
+    MessageDlg('La plage restante est trop courte pour effectuer le scan.',
+      mtError, [mbOK], 0);
+    Exit;
+  end;
+  EndKHz := StartKHz + ((ScanPointCount - 1) * AStepKHz);
+  if (StartKHz * 1000 < MinHz) or (StartKHz * 1000 > MaxHz) or
+     (EndKHz * 1000 > MaxHz + 0.1) then
+  begin
+    MessageDlg(Format(
+      'Plage invalide : le scan irait de %.3f à %.3f MHz.' + sLineBreak +
+      'Limites de la bande : %.3f à %.3f MHz.',
+      [StartKHz / 1000, EndKHz / 1000,
+       MinHz / 1000000, MaxHz / 1000000]), mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  if FRDSEnabledOnATS then
+  begin
+    SendATSCommand(TATSProtocol.SetRDS(False), False);
+    FRDSEnabledOnATS := False;
+    ClearRDSDisplay;
+  end;
+
+  if not SendATSCommand(TATSProtocol.ScanStartAt(StartKHz, AStepKHz), False) then
+    Exit;
+
+  FScanEnabled := True;
+  FScanPaused := False;
+  FScanStartTick := GetTickCount64;
+  FScanLastActivityTick := FScanStartTick;
+  if frmSpectrum <> nil then
+    frmSpectrum.BeginScan;
+  UpdateModeLamps;
+  UpdateDisplay;
+end;
+
+
+procedure TfrmMain.hsScanClick(Sender: TObject);
+var
+  StartMHz, StepKHz: Double;
+  MinHz, MaxHz: Int64;
 begin
   if IsFrontPanelLocked then
     Exit;
@@ -1911,112 +2116,29 @@ begin
   if (FATSConnection = nil) or not FATSConnection.IsAlive then
     Exit;
 
-  if not FScanEnabled then
+  if FScanEnabled then
   begin
-    GetActiveBandLimits(MinHz, MaxHz);
-    if IsBroadcastFMActive then
-      StartText := FormatFloat('0.000', FFrequencyHz / 1000000)
-    else
-      StartText := FormatFloat('0.000', MinHz / 1000000);
-    if not InputQuery('PARAMETRES DU SPECTRUM ANALYZER',
-      'Frequence de depart (MHz) :', StartText) then
-      Exit;
-
-    LocalFormat := TFormatSettings.Create;
-    StartText := StringReplace(Trim(StartText), '.',
-      LocalFormat.DecimalSeparator, [rfReplaceAll]);
-    if not TryStrToFloat(StartText, StartMHz, LocalFormat) then
-    begin
-      MessageDlg('Frequence de depart invalide.', mtError, [mbOK], 0);
-      Exit;
-    end;
-    StartKHz := Round(StartMHz * 1000);
-
-    if IsBroadcastFMActive then
-      StepText := '10'
-    else
-      StepText := '1';
-    if not InputQuery('PARAMETRES DU SPECTRUM ANALYZER',
-      'Pas (kHz) :', StepText) then
-      Exit;
-    StepText := StringReplace(Trim(StepText), '.',
-      LocalFormat.DecimalSeparator, [rfReplaceAll]);
-    if not TryStrToFloat(StepText, StepKHz, LocalFormat) then
-    begin
-      MessageDlg('Pas de scan invalide.', mtError, [mbOK], 0);
-      Exit;
-    end;
-    if IsBroadcastFMActive and
-       ((StepKHz < 10) or (StepKHz > 1000) or
-        (Abs((StepKHz / 10) - Round(StepKHz / 10)) > 0.0001)) then
-    begin
-      MessageDlg('En FM, le pas doit etre un multiple de 10 kHz, entre 10 et 1000 kHz.',
-        mtError, [mbOK], 0);
-      Exit;
-    end;
-    if (not IsBroadcastFMActive) and
-       ((StepKHz < 1) or (StepKHz > 100) or
-        (Abs(StepKHz - Round(StepKHz)) > 0.0001)) then
-    begin
-      MessageDlg('Sur les bandes HAM, le pas doit etre un nombre entier de kHz, entre 1 et 100.',
-        mtError, [mbOK], 0);
-      Exit;
-    end;
-
-    ScanPointCount := Integer(
-      Trunc(((MaxHz div 1000) - StartKHz) / StepKHz) + 1);
-    if ScanPointCount > CScanPointCount then
-      ScanPointCount := CScanPointCount;
-    if ScanPointCount < 2 then
-    begin
-      MessageDlg('La plage restante est trop courte pour effectuer le scan.',
-        mtError, [mbOK], 0);
-      Exit;
-    end;
-    EndKHz := StartKHz + ((ScanPointCount - 1) * StepKHz);
-    if (StartKHz * 1000 < MinHz) or (StartKHz * 1000 > MaxHz) or
-       (EndKHz * 1000 > MaxHz + 0.1) then
-    begin
-      MessageDlg(Format(
-        'Plage invalide : le scan irait de %.3f a %.3f MHz.' + sLineBreak +
-        'Limites de la bande : %.3f a %.3f MHz.',
-        [StartKHz / 1000, EndKHz / 1000,
-         MinHz / 1000000, MaxHz / 1000000]), mtError, [mbOK], 0);
-      Exit;
-    end;
-
-    { Le scan FM et le décodeur RDS partagent les ressources du récepteur.
-      Couper le RDS avant de démarrer le balayage natif ATS. }
-    if FRDSEnabledOnATS then
-    begin
-      SendATSCommand(TATSProtocol.SetRDS(False), False);
-      FRDSEnabledOnATS := False;
-      ClearRDSDisplay;
-    end;
-
-    if not SendATSCommand(TATSProtocol.ScanStartAt(StartKHz, StepKHz), False) then
-    begin
-      FScanEnabled := False;
-      UpdateModeLamps;
-      UpdateDisplay;
-      Exit;
-    end;
-
-    FScanEnabled := True;
-    FScanStartTick := GetTickCount64;
-    FScanLastActivityTick := FScanStartTick;
     if frmSpectrum <> nil then
-      frmSpectrum.BeginScan;
+    begin
+      frmSpectrum.Show;
+      frmSpectrum.BringToFront;
+    end;
+    Exit;
+  end;
+
+  GetActiveBandLimits(MinHz, MaxHz);
+  if IsBroadcastFMActive then
+  begin
+    StartMHz := FFrequencyHz / 1000000;
+    StepKHz := 10;
   end
   else
   begin
-    AbortSpectrumScan('Scan arrêté par l''utilisateur.');
-    if frmSpectrum <> nil then
-      frmSpectrum.Hide;
+    StartMHz := MinHz / 1000000;
+    StepKHz := 1;
   end;
-
-  UpdateModeLamps;
-  UpdateDisplay;
+  if frmSpectrum <> nil then
+    frmSpectrum.PrepareScan(StartMHz, StepKHz);
 end;
 
 procedure TfrmMain.hsTuningMouseWheel(Sender: TObject;
@@ -2638,7 +2760,7 @@ begin
   if (FATSConnection = nil) or not FATSConnection.IsAlive then
     Exit;
 
-  if FScanEnabled then
+  if FScanEnabled and not FScanPaused then
   begin
     CurrentTick := GetTickCount64;
     if (frmSpectrum = nil) then
@@ -2730,9 +2852,14 @@ begin
       { Le premier balayage complet prend plusieurs secondes avec le temps de
         stabilisation du tuner. Ce message maintient le timeout d'activite,
         tandis que le timeout total de 120 secondes reste applicable. }
-      if FScanEnabled and SameText('SCAN,STATE=RUNNING', L) then
+      if FScanEnabled and
+         (SameText('SCAN,STATE=RUNNING', L) or
+          SameText('SCAN,STATE=PAUSED', L)) then
       begin
+        FScanPaused := SameText('SCAN,STATE=PAUSED', L);
         FScanLastActivityTick := GetTickCount64;
+        if frmSpectrum <> nil then
+          frmSpectrum.SetPaused(FScanPaused);
         Continue;
       end;
 
@@ -2875,7 +3002,6 @@ end;
 procedure TfrmMain.NixieClick(Sender: TObject);
 var
   F: TfrmFrequencyInput;
-  MinHz, MaxHz: Int64;
 begin
   if IsFrontPanelLocked then
     Exit;
@@ -2885,19 +3011,21 @@ begin
     if not F.Execute(FFrequencyHz) then
       Exit;
 
-    GetActiveBandLimits(MinHz, MaxHz);
-    if (F.FrequencyHz < MinHz) or (F.FrequencyHz > MaxHz) then
+    if ((F.FrequencyHz > 30000000) and
+        (F.FrequencyHz < 87500000)) then
     begin
       MessageDlg(
-        Format('Frequence hors de la bande selectionnee (%s - %s).',
-          [FormatFloat('#,##0', MinHz / 1000.0) + ' kHz',
-           FormatFloat('#,##0', MaxHz / 1000.0) + ' kHz']),
+        'Fréquence non prise en charge par le firmware ATS.' + sLineBreak +
+        'Plages disponibles : 100 kHz à 30 MHz et 87,5 à 108 MHz.',
         mtWarning, [mbOK], 0
       );
       Exit;
     end;
 
-    FFrequencyHz := F.FrequencyHz;
+    if FScanEnabled then
+      AbortSpectrumScan('Scan arrêté par la saisie directe de fréquence.');
+
+    SelectBandForDirectFrequency(F.FrequencyHz);
     FLocalControlUntil := GetTickCount64 + 1500;
 
     EnforceFMBandMode;
@@ -2913,7 +3041,10 @@ begin
     UpdateModeLamps;
 
     if FPowerOn and (FATSConnection <> nil) and FATSConnection.IsAlive then
+    begin
       SendATSCommand(TATSProtocol.SetFrequencyKHz(FFrequencyHz div 1000));
+      SendModeCommand(FMode);
+    end;
 
     SaveCurrentHamBandMemory;
     if FInRadioBand then

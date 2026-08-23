@@ -48,6 +48,8 @@ type
     class function ScanStartAt(AStartKHz: Int64;
       AStepKHz: Double): AnsiString; static;
     class function ScanStop: AnsiString; static;
+    class function ScanPause: AnsiString; static;
+    class function ScanResume: AnsiString; static;
     class function RequestScanData: AnsiString; static;
     class function IsPong(const AResponse: string): Boolean; static;
     class function ParseStatus(const AResponse: string;
@@ -124,6 +126,16 @@ end;
 class function TATSProtocol.ScanStop: AnsiString;
 begin
   Result := 'SCAN=STOP'#10;
+end;
+
+class function TATSProtocol.ScanPause: AnsiString;
+begin
+  Result := 'SCAN=PAUSE'#10;
+end;
+
+class function TATSProtocol.ScanResume: AnsiString;
+begin
+  Result := 'SCAN=RESUME'#10;
 end;
 
 class function TATSProtocol.RequestScanData: AnsiString;

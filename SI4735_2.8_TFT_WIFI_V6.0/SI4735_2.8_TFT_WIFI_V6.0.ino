@@ -2243,6 +2243,24 @@ int pcFindBandForFrequency(uint32_t freqKHz, uint16_t internalFreq) {
   if (freqKHz >= 87500UL && freqKHz <= 108000UL)
     return BAND_FM;
 
+  // Conserver la bande courante lorsqu'elle contient encore la fréquence.
+  if (bandIdx > BAND_FM && bandIdx < BAND_SW &&
+      internalFreq >= band[bandIdx].minimumFreq &&
+      internalFreq <= band[bandIdx].maximumFreq)
+    return bandIdx;
+
+  // En cas de recouvrement, privilégier les bandes HAM gérées par ATS LAB.
+  const uint8_t pcHamBands[] = {
+    BAND_160M, BAND_80M, BAND_40M, BAND_20M, BAND_16M,
+    BAND_14M, BAND_12M, BAND_10M, BAND_CB
+  };
+  for (uint8_t i = 0; i < sizeof(pcHamBands); i++) {
+    const int candidate = pcHamBands[i];
+    if (internalFreq >= band[candidate].minimumFreq &&
+        internalFreq <= band[candidate].maximumFreq)
+      return candidate;
+  }
+
   for (int i = 1; i < BAND_SW; i++) {
     if (internalFreq >= band[i].minimumFreq &&
         internalFreq <= band[i].maximumFreq)
@@ -2466,7 +2484,8 @@ void pcSendScanData(Print &out) {
   // Attendre que le premier balayage soit complet. Envoyer SCANEND avec un
   // tableau encore partiel ferait arreter le scan par ATS LAB.
   if (ScanEmpty) {
-    out.println("SCAN,STATE=RUNNING");
+    if (SCANpause) out.println("SCAN,STATE=PAUSED");
+    else out.println("SCAN,STATE=RUNNING");
     return;
   }
 
