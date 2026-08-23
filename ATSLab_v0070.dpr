@@ -22,7 +22,7 @@ uses
 begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
-  Application.Title := 'ATS LAB v0.09.1d NIXIE DOT';
+  Application.Title := 'ATS LAB v1.1.1';
   Application.CreateForm(TfrmMain, frmMain);
   Application.Run;
 end.

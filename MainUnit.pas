@@ -396,7 +396,7 @@ begin
 
   TAboutForm.Execute(
     'ATS LAB',
-    '0.09.1d NIXIE DOT',
+    '1.1.1',
     ReceiverText,
     ConnType,
     ConnDetail,
@@ -505,6 +505,9 @@ begin
   { Arrêt propre avant fermeture }
   if FConnectionTimer <> nil then
     FConnectionTimer.Enabled := False;
+
+  if FScanEnabled then
+    AbortSpectrumScan('Scan arrêté avant la fermeture.');
 
   if FATSConnection <> nil then
     FATSConnection.Disconnect;
@@ -1327,6 +1330,7 @@ begin
   if (not CanScan) and FScanEnabled then
   begin
     FScanEnabled := False;
+    FScanPaused := False;
     FScanStartTick := 0;
     FScanLastActivityTick := 0;
 
@@ -1812,7 +1816,7 @@ begin
 
 
     lblStatusDynamic.Caption := Format(
-    'ATS LAB v0.09.1d   CONNECTED   %s   %s kHz',
+    'ATS LAB v1.1.1   CONNECTED   %s   %s kHz',
     [FMode, FormatFloat('#,##0', FFrequencyHz div 1000)]
   );
 
@@ -2355,6 +2359,26 @@ begin
   if GetTickCount64 < FLocalControlUntil then
     Exit;
 
+  { Pendant le balayage, STATUS? décrit la fréquence temporaire du tuner.
+    Ne jamais l'utiliser comme fréquence, bande ou mode radio mémorisé. }
+  if FScanEnabled then
+  begin
+    FApplyingRemoteStatus := True;
+    try
+      if AStatus.HasVolume then
+        FVolume := EnsureRange(AStatus.Volume, 0, 100);
+      if AStatus.HasSquelch then
+        FSquelch := EnsureRange(AStatus.Squelch, 0, 100);
+      if AStatus.HasBFO then
+        FBFO := EnsureRange(AStatus.BFO, -3000, 3000);
+      UpdateBFOText;
+      UpdateKnobValues;
+    finally
+      FApplyingRemoteStatus := False;
+    end;
+    Exit;
+  end;
+
   if AStatus.HasBand then
     SyncBandFromStatus(AStatus.Band);
 
@@ -2877,9 +2901,10 @@ begin
         Continue;
       end;
 
-      if StartsText('SCANBEGIN,', L) or
-         StartsText('SCANDATA,', L) or
-         SameText('SCANEND', L) then
+      if FScanEnabled and
+         (StartsText('SCANBEGIN,', L) or
+          StartsText('SCANDATA,', L) or
+          SameText('SCANEND', L)) then
       begin
         if StartsText('SCANBEGIN,', L) then
         begin
@@ -3097,6 +3122,8 @@ begin
       if FPowerOn then
       begin
         FConnectionTimer.Enabled := False;
+        if FScanEnabled then
+          AbortSpectrumScan('Scan arrêté avant la déconnexion.');
         FATSConnection.Disconnect;
         lblConnectionInfo.Font.Color := clRed;
         lblConnectionInfo.Caption := 'Connexion : NON CONNECTE';

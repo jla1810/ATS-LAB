@@ -52823,7 +52823,7 @@ object frmMain: TfrmMain
     Height = 18
     Alignment = taCenter
     AutoSize = False
-    Caption = 'ATS LAB v0.09.1d   CONNECTED   USB   14205 kHz'
+    Caption = 'ATS LAB v1.1.1   CONNECTED   USB   14205 kHz'
     Font.Charset = DEFAULT_CHARSET
     Font.Color = 4259648
     Font.Height = -12

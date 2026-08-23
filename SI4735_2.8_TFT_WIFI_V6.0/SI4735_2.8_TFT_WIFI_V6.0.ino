@@ -31,6 +31,7 @@ void FreqDraw(float freq, int d);
 void Segment(String freq, String mask, int d);
 bool pcStartScan(uint32_t requestedBaseKHz = 0,
                  float requestedStepKHz = 0);
+bool pcStopScan();
 
 String WIFI_SSID = "";
 String WIFI_PASS = "";
@@ -2313,11 +2314,16 @@ bool pcSetMode(const String &modeText) {
 
 bool pcStartScan(uint32_t requestedBaseKHz, float requestedStepKHz) {
   if (SCANbut) {
-    if (SCANpause) {
-      SCANpause = false;
-      pauseSCAN();
+    // Une reprise historique sans paramètres conserve le scan existant.
+    // Une demande paramétrée doit réellement remplacer l'ancien balayage.
+    if (requestedBaseKHz == 0 && requestedStepKHz <= 0) {
+      if (SCANpause) {
+        SCANpause = false;
+        pauseSCAN();
+      }
+      return true;
     }
-    return true;
+    pcStopScan();
   }
 
   int d = screenV * 40;

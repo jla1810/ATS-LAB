@@ -62,6 +62,7 @@ type
     FWaterfallBaseKHz: Double;
     FWaterfallStepKHz: Double;
     FWaterfallCount: Integer;
+    FReceivedPoints: TArray<Boolean>;
     FReceivedCount: Integer;
     FSelectedIndex: Integer;
     FPeakIndices: TArray<Integer>;
@@ -157,6 +158,7 @@ begin
   FCount := 0;
   SetLength(FRSSI, 0);
   SetLength(FSNR, 0);
+  SetLength(FReceivedPoints, 0);
   FBaseKHz := 0;
   FStepKHz := 0;
   FReceiving := False;
@@ -361,13 +363,20 @@ procedure TfrmSpectrum.btnExportCSVClick(Sender: TObject);
 var
   Dialog: TSaveDialog;
   Lines: TStringList;
+  RSSISnapshot, SNRSnapshot: TArray<Integer>;
   FS: TFormatSettings;
-  I: Integer;
-  FrequencyKHz: Double;
+  I, CountSnapshot: Integer;
+  FrequencyKHz, BaseKHzSnapshot, StepKHzSnapshot: Double;
 begin
   if not FDataComplete or FReceiving or
      (FCount <= 0) or (FStepKHz <= 0) then
     Exit;
+
+  CountSnapshot := FCount;
+  BaseKHzSnapshot := FBaseKHz;
+  StepKHzSnapshot := FStepKHz;
+  RSSISnapshot := Copy(FRSSI);
+  SNRSnapshot := Copy(FSNR);
 
   Dialog := TSaveDialog.Create(nil);
   Lines := TStringList.Create;
@@ -382,13 +391,13 @@ begin
 
       FS := TFormatSettings.Invariant;
       Lines.Add('Index;Frequence_kHz;Frequence_MHz;RSSI;SNR');
-      for I := 0 to FCount - 1 do
+      for I := 0 to CountSnapshot - 1 do
       begin
-        FrequencyKHz := FBaseKHz + (I * FStepKHz);
+        FrequencyKHz := BaseKHzSnapshot + (I * StepKHzSnapshot);
         Lines.Add(Format('%d;%s;%s;%d;%d',
           [I, FormatFloat('0.###', FrequencyKHz, FS),
            FormatFloat('0.######', FrequencyKHz / 1000, FS),
-           FRSSI[I], FSNR[I]]));
+           RSSISnapshot[I], SNRSnapshot[I]]));
       end;
       Lines.SaveToFile(Dialog.FileName, TEncoding.UTF8);
     except
@@ -417,6 +426,13 @@ begin
   PNG := TPngImage.Create;
   try
     try
+      { Créer l'image avant la boîte modale : le timer de communication peut
+        continuer à recevoir un autre cycle pendant Dialog.Execute. }
+      Bitmap.PixelFormat := pf24bit;
+      Bitmap.SetSize(pbSpectrum.ClientWidth, pbSpectrum.ClientHeight);
+      DrawSpectrum(Bitmap.Canvas, Rect(0, 0, Bitmap.Width, Bitmap.Height));
+      PNG.Assign(Bitmap);
+
       Dialog.Title := 'Exporter le graphique du spectre';
       Dialog.Filter := 'Image PNG (*.png)|*.png';
       Dialog.DefaultExt := 'png';
@@ -424,10 +440,6 @@ begin
       if not Dialog.Execute then
         Exit;
 
-      Bitmap.PixelFormat := pf24bit;
-      Bitmap.SetSize(pbSpectrum.ClientWidth, pbSpectrum.ClientHeight);
-      DrawSpectrum(Bitmap.Canvas, Rect(0, 0, Bitmap.Width, Bitmap.Height));
-      PNG.Assign(Bitmap);
       PNG.SaveToFile(Dialog.FileName);
     except
       on E: Exception do
@@ -490,10 +502,12 @@ begin
     end;
     SetLength(FRSSI, FCount);
     SetLength(FSNR, FCount);
+    SetLength(FReceivedPoints, FCount);
     if FCount > 0 then
     begin
       FillChar(FRSSI[0], FCount * SizeOf(Integer), 0);
       FillChar(FSNR[0], FCount * SizeOf(Integer), 0);
+      FillChar(FReceivedPoints[0], FCount * SizeOf(Boolean), 0);
     end;
     FReceiving := True;
     FDataComplete := False;
@@ -523,11 +537,14 @@ begin
       end;
       FRSSI[DataIndex] := EnsureRange(R, 0, 100);
       FSNR[DataIndex] := EnsureRange(S, 0, 100);
+      if not FReceivedPoints[DataIndex] then
+      begin
+        FReceivedPoints[DataIndex] := True;
+        Inc(FReceivedCount);
+      end;
       Inc(DataIndex);
       Inc(I, 2);
     end;
-    if DataIndex > FReceivedCount then
-      FReceivedCount := DataIndex;
     UpdateProgress;
     Exit;
   end;
@@ -535,14 +552,24 @@ begin
   if SameText(L, 'SCANEND') then
   begin
     FReceiving := False;
-    FDataComplete := True;
+    FDataComplete := (FCount > 0) and (FReceivedCount = FCount);
     btnStart.Enabled := True;
     btnPause.Enabled := False;
     btnResume.Enabled := False;
     btnStop.Enabled := False;
-    DetectPeaks;
-    UpdateInfo;
-    AppendWaterfallLine;
+    if FDataComplete then
+    begin
+      DetectPeaks;
+      UpdateInfo;
+      AppendWaterfallLine;
+    end
+    else
+    begin
+      lblRange.Caption := Format(
+        'Trame de scan incomplète : %d / %d points reçus',
+        [FReceivedCount, FCount]);
+      lblPeak.Caption := 'PIC : ---';
+    end;
     UpdateExportButtons;
     pbSpectrum.Invalidate;
     if Assigned(FOnScanEnd) then

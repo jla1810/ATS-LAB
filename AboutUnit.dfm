@@ -6220,7 +6220,7 @@ object AboutForm: TAboutForm
     Height = 24
     Alignment = taCenter
     AutoSize = False
-    Caption = 'Version 0.09.1d NIXIE DOT'
+    Caption = 'Version 1.1.1'
     Font.Charset = DEFAULT_CHARSET
     Font.Color = 8454143
     Font.Height = -17
