@@ -6,7 +6,7 @@ uses
   Winapi.Windows,
   System.SysUtils, System.Classes, System.Math, System.Generics.Collections,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.ExtCtrls, Vcl.StdCtrls,
-  Vcl.Dialogs;
+  Vcl.Dialogs, Vcl.Imaging.pngimage;
 
 type
   TSpectrumStopEvent = procedure(Sender: TObject) of object;
@@ -32,7 +32,12 @@ type
     btnPause: TButton;
     btnResume: TButton;
     btnStop: TButton;
+    btnExportCSV: TButton;
+    btnExportPNG: TButton;
+    lblWaterfall: TLabel;
+    pbWaterfall: TPaintBox;
     procedure FormCreate(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure pbSpectrumPaint(Sender: TObject);
     procedure pbSpectrumMouseDown(Sender: TObject; Button: TMouseButton;
@@ -42,6 +47,9 @@ type
     procedure btnPauseClick(Sender: TObject);
     procedure btnResumeClick(Sender: TObject);
     procedure btnStopClick(Sender: TObject);
+    procedure btnExportCSVClick(Sender: TObject);
+    procedure btnExportPNGClick(Sender: TObject);
+    procedure pbWaterfallPaint(Sender: TObject);
   private
     FRSSI: TArray<Integer>;
     FSNR: TArray<Integer>;
@@ -49,6 +57,11 @@ type
     FBaseKHz: Double;
     FStepKHz: Double;
     FReceiving: Boolean;
+    FDataComplete: Boolean;
+    FWaterfall: TBitmap;
+    FWaterfallBaseKHz: Double;
+    FWaterfallStepKHz: Double;
+    FWaterfallCount: Integer;
     FReceivedCount: Integer;
     FSelectedIndex: Integer;
     FPeakIndices: TArray<Integer>;
@@ -64,9 +77,15 @@ type
     procedure UpdateInfo;
     procedure UpdateProgress;
     procedure DetectPeaks;
+    procedure DrawSpectrum(const ACanvas: TCanvas; const ARect: TRect);
+    procedure UpdateExportButtons;
+    procedure AppendWaterfallLine;
+    procedure ClearWaterfall;
+    function WaterfallColor(const AValue: Integer): TColor;
     function ValueAfterKey(const ALine, AKey: string): string;
   public
     procedure BeginScan;
+    procedure ContinueScan;
     procedure AbortScan(const AReason: string);
     procedure ProcessScanLine(const ALine: string);
     procedure PrepareScan(const AStartMHz, AStepKHz: Double);
@@ -101,6 +120,14 @@ begin
   FBaseKHz := 0;
   FStepKHz := 0;
   FReceiving := False;
+  FDataComplete := False;
+  FWaterfall := TBitmap.Create;
+  FWaterfall.PixelFormat := pf24bit;
+  FWaterfall.SetSize(pbWaterfall.ClientWidth, pbWaterfall.ClientHeight);
+  FWaterfallBaseKHz := 0;
+  FWaterfallStepKHz := 0;
+  FWaterfallCount := 0;
+  ClearWaterfall;
   FReceivedCount := 0;
   FSelectedIndex := -1;
   FNoiseFloor := 0;
@@ -114,6 +141,15 @@ begin
   btnPause.Enabled := False;
   btnResume.Enabled := False;
   btnStop.Enabled := False;
+  UpdateExportButtons;
+end;
+
+procedure TfrmSpectrum.FormDestroy(Sender: TObject);
+begin
+  pbSpectrum.OnMouseDown := nil;
+  pbSpectrum.OnPaint := nil;
+  pbWaterfall.OnPaint := nil;
+  FreeAndNil(FWaterfall);
 end;
 
 procedure TfrmSpectrum.ClearData;
@@ -124,10 +160,12 @@ begin
   FBaseKHz := 0;
   FStepKHz := 0;
   FReceiving := False;
+  FDataComplete := False;
   FReceivedCount := 0;
   FSelectedIndex := -1;
   FNoiseFloor := 0;
   SetLength(FPeakIndices, 0);
+  UpdateExportButtons;
   pbSpectrum.Invalidate;
 end;
 
@@ -140,6 +178,7 @@ begin
   btnStop.Enabled := False;
   if Trim(AReason) <> '' then
     lblRange.Caption := AReason;
+  UpdateExportButtons;
   pbSpectrum.Invalidate;
 end;
 
@@ -189,6 +228,91 @@ begin
     FOnStopRequest(Self);
 end;
 
+procedure TfrmSpectrum.ContinueScan;
+begin
+  btnStart.Enabled := False;
+  btnPause.Enabled := True;
+  btnResume.Enabled := False;
+  btnStop.Enabled := True;
+end;
+
+procedure TfrmSpectrum.UpdateExportButtons;
+var
+  CanExport: Boolean;
+begin
+  CanExport := FDataComplete and (not FReceiving) and (FCount > 0) and
+    (Length(FRSSI) >= FCount) and (Length(FSNR) >= FCount) and
+    (FStepKHz > 0);
+  btnExportCSV.Enabled := CanExport;
+  btnExportPNG.Enabled := CanExport;
+end;
+
+function TfrmSpectrum.WaterfallColor(const AValue: Integer): TColor;
+var
+  V, R, G, B: Integer;
+begin
+  V := EnsureRange(AValue, 0, 100);
+  if V < 25 then
+  begin
+    R := 0;
+    G := V * 2;
+    B := 20 + (V * 5);
+  end
+  else if V < 50 then
+  begin
+    R := 0;
+    G := 50 + ((V - 25) * 8);
+    B := 145 - ((V - 25) * 5);
+  end
+  else if V < 75 then
+  begin
+    R := (V - 50) * 10;
+    G := 250;
+    B := 20;
+  end
+  else
+  begin
+    R := 250;
+    G := 250 - ((V - 75) * 8);
+    B := 20;
+  end;
+  Result := RGB(EnsureRange(R, 0, 255), EnsureRange(G, 0, 255),
+    EnsureRange(B, 0, 255));
+end;
+
+procedure TfrmSpectrum.AppendWaterfallLine;
+var
+  X, DataIndex: Integer;
+  ScrollRect, ClipRect: TRect;
+begin
+  if (FWaterfall = nil) or (FWaterfall.Width <= 0) or
+     (FWaterfall.Height <= 0) or (FCount <= 0) then
+    Exit;
+
+  ScrollRect := Rect(0, 0, FWaterfall.Width, FWaterfall.Height);
+  ClipRect := ScrollRect;
+  ScrollDC(FWaterfall.Canvas.Handle, 0, 1, ScrollRect, ClipRect, 0, nil);
+  for X := 0 to FWaterfall.Width - 1 do
+  begin
+    if FWaterfall.Width > 1 then
+      DataIndex := MulDiv(X, FCount - 1, FWaterfall.Width - 1)
+    else
+      DataIndex := 0;
+    FWaterfall.Canvas.Pixels[X, 0] := WaterfallColor(FRSSI[DataIndex]);
+  end;
+  pbWaterfall.Invalidate;
+end;
+
+procedure TfrmSpectrum.ClearWaterfall;
+begin
+  if FWaterfall = nil then
+    Exit;
+  FWaterfall.Canvas.Brush.Style := bsSolid;
+  FWaterfall.Canvas.Brush.Color := RGB(8, 10, 12);
+  FWaterfall.Canvas.FillRect(Rect(0, 0, FWaterfall.Width, FWaterfall.Height));
+  pbWaterfall.Invalidate;
+end;
+
 procedure TfrmSpectrum.btnCloseClick(Sender: TObject);
 begin
   Close;
@@ -233,6 +357,95 @@ begin
     FOnStopRequest(Self);
 end;
 
+procedure TfrmSpectrum.btnExportCSVClick(Sender: TObject);
+var
+  Dialog: TSaveDialog;
+  Lines: TStringList;
+  FS: TFormatSettings;
+  I: Integer;
+  FrequencyKHz: Double;
+begin
+  if not FDataComplete or FReceiving or
+     (FCount <= 0) or (FStepKHz <= 0) then
+    Exit;
+
+  Dialog := TSaveDialog.Create(nil);
+  Lines := TStringList.Create;
+  try
+    try
+      Dialog.Title := 'Exporter les mesures du spectre';
+      Dialog.Filter := 'Fichier CSV (*.csv)|*.csv';
+      Dialog.DefaultExt := 'csv';
+      Dialog.FileName := FormatDateTime('"spectre_"yyyymmdd_hhnnss', Now) + '.csv';
+      if not Dialog.Execute then
+        Exit;
+
+      FS := TFormatSettings.Invariant;
+      Lines.Add('Index;Frequence_kHz;Frequence_MHz;RSSI;SNR');
+      for I := 0 to FCount - 1 do
+      begin
+        FrequencyKHz := FBaseKHz + (I * FStepKHz);
+        Lines.Add(Format('%d;%s;%s;%d;%d',
+          [I, FormatFloat('0.###', FrequencyKHz, FS),
+           FormatFloat('0.######', FrequencyKHz / 1000, FS),
+           FRSSI[I], FSNR[I]]));
+      end;
+      Lines.SaveToFile(Dialog.FileName, TEncoding.UTF8);
+    except
+      on E: Exception do
+        MessageDlg('Impossible d''exporter le CSV : ' + E.Message,
+          mtError, [mbOK], 0);
+    end;
+  finally
+    Lines.Free;
+    Dialog.Free;
+  end;
+end;
+
+procedure TfrmSpectrum.btnExportPNGClick(Sender: TObject);
+var
+  Dialog: TSaveDialog;
+  Bitmap: TBitmap;
+  PNG: TPngImage;
+begin
+  if not FDataComplete or FReceiving or
+     (FCount <= 0) or (FStepKHz <= 0) then
+    Exit;
+
+  Dialog := TSaveDialog.Create(nil);
+  Bitmap := TBitmap.Create;
+  PNG := TPngImage.Create;
+  try
+    try
+      Dialog.Title := 'Exporter le graphique du spectre';
+      Dialog.Filter := 'Image PNG (*.png)|*.png';
+      Dialog.DefaultExt := 'png';
+      Dialog.FileName := FormatDateTime('"spectre_"yyyymmdd_hhnnss', Now) + '.png';
+      if not Dialog.Execute then
+        Exit;
+
+      Bitmap.PixelFormat := pf24bit;
+      Bitmap.SetSize(pbSpectrum.ClientWidth, pbSpectrum.ClientHeight);
+      DrawSpectrum(Bitmap.Canvas, Rect(0, 0, Bitmap.Width, Bitmap.Height));
+      PNG.Assign(Bitmap);
+      PNG.SaveToFile(Dialog.FileName);
+    except
+      on E: Exception do
+        MessageDlg('Impossible d''exporter le PNG : ' + E.Message,
+          mtError, [mbOK], 0);
+    end;
+  finally
+    PNG.Free;
+    Bitmap.Free;
+    Dialog.Free;
+  end;
+end;
+
+{
+  Les méthodes d'export ci-dessus utilisent une copie autonome des données et
+  du rendu. Elles ne modifient ni la fréquence courante ni la connexion ATS.
+}
+
 function TfrmSpectrum.ValueAfterKey(const ALine, AKey: string): string;
 var
   P, E: Integer;
@@ -266,6 +479,15 @@ begin
     if (FBaseKHz >= 8750) and (FBaseKHz <= 10800) then
       FBaseKHz := FBaseKHz * 10;
     FCount := EnsureRange(FCount, 0, CMaxScanPoints);
+    if (FWaterfallCount <> FCount) or
+       (Abs(FWaterfallBaseKHz - FBaseKHz) > 0.001) or
+       (Abs(FWaterfallStepKHz - FStepKHz) > 0.001) then
+    begin
+      FWaterfallCount := FCount;
+      FWaterfallBaseKHz := FBaseKHz;
+      FWaterfallStepKHz := FStepKHz;
+      ClearWaterfall;
+    end;
     SetLength(FRSSI, FCount);
     SetLength(FSNR, FCount);
     if FCount > 0 then
@@ -274,6 +496,8 @@ begin
       FillChar(FSNR[0], FCount * SizeOf(Integer), 0);
     end;
     FReceiving := True;
+    FDataComplete := False;
+    UpdateExportButtons;
     FReceivedCount := 0;
     UpdateProgress;
     Exit;
@@ -311,12 +535,15 @@ begin
   if SameText(L, 'SCANEND') then
   begin
     FReceiving := False;
+    FDataComplete := True;
     btnStart.Enabled := True;
     btnPause.Enabled := False;
     btnResume.Enabled := False;
     btnStop.Enabled := False;
     DetectPeaks;
     UpdateInfo;
+    AppendWaterfallLine;
+    UpdateExportButtons;
     pbSpectrum.Invalidate;
     if Assigned(FOnScanEnd) then
       FOnScanEnd(Self);
@@ -472,6 +699,20 @@ begin
 end;
 
 procedure TfrmSpectrum.pbSpectrumPaint(Sender: TObject);
+begin
+  DrawSpectrum(pbSpectrum.Canvas, pbSpectrum.ClientRect);
+end;
+
+procedure TfrmSpectrum.pbWaterfallPaint(Sender: TObject);
+begin
+  pbWaterfall.Canvas.Brush.Color := RGB(8, 10, 12);
+  pbWaterfall.Canvas.FillRect(pbWaterfall.ClientRect);
+  if FWaterfall <> nil then
+    pbWaterfall.Canvas.Draw(0, 0, FWaterfall);
+end;
+
+procedure TfrmSpectrum.DrawSpectrum(const ACanvas: TCanvas;
+  const ARect: TRect);
 var
   C: TCanvas;
   R: TRect;
@@ -480,8 +721,8 @@ var
   FreqKHz: Double;
   S: string;
 begin
-  C := pbSpectrum.Canvas;
-  R := pbSpectrum.ClientRect;
+  C := ACanvas;
+  R := ARect;
   C.Brush.Style := bsSolid;
   C.Brush.Color := RGB(14, 18, 17);
   C.FillRect(R);

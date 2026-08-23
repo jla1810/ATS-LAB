@@ -1934,12 +1934,25 @@ end;
 
 procedure TfrmMain.SpectrumScanEnded(Sender: TObject);
 begin
-  if (FATSConnection <> nil) and FATSConnection.IsAlive then
-    SendATSCommand(TATSProtocol.ScanStop, False);
-  FScanEnabled := False;
-  FScanPaused := False;
-  FScanStartTick := 0;
-  FScanLastActivityTick := 0;
+  if not FScanEnabled then
+    Exit;
+
+  if (FATSConnection = nil) or not FATSConnection.IsAlive then
+  begin
+    AbortSpectrumScan('Scan interrompu : connexion ATS perdue.');
+    Exit;
+  end;
+
+  { Le scanner natif ATS continue de balayer après SCANEND. Le PC conserve
+    donc le scan actif et demandera la prochaine image avec SCANDATA?. }
+  FScanStartTick := GetTickCount64;
+  FScanLastActivityTick := FScanStartTick;
+  if frmSpectrum <> nil then
+  begin
+    frmSpectrum.ContinueScan;
+    if FScanPaused then
+      frmSpectrum.SetPaused(True);
+  end;
   UpdateModeLamps;
   UpdateDisplay;
 end;
@@ -1957,7 +1970,8 @@ begin
   GetActiveBandLimits(MinHz, MaxHz);
   AFrequencyKHz := EnsureRange(AFrequencyKHz,
     MinHz div 1000, MaxHz div 1000);
-  SendATSCommand(TATSProtocol.ScanStop, False);
+  if FScanEnabled then
+    AbortSpectrumScan('Scan arrêté pour l''accord sur le spectre.');
   FFrequencyHz := AFrequencyKHz * 1000;
   FLocalControlUntil := GetTickCount64 + 1500;
   if IsBroadcastFMActive then
@@ -2867,6 +2881,13 @@ begin
          StartsText('SCANDATA,', L) or
          SameText('SCANEND', L) then
       begin
+        if StartsText('SCANBEGIN,', L) then
+        begin
+          if ContainsText(L, 'STATE=PAUSED') then
+            FScanPaused := True
+          else if ContainsText(L, 'STATE=RUNNING') then
+            FScanPaused := False;
+        end;
         FScanLastActivityTick := GetTickCount64;
         if frmSpectrum <> nil then
           frmSpectrum.ProcessScanLine(L);

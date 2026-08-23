@@ -2481,11 +2481,15 @@ void pcSendScanData(Print &out) {
     return;
   }
 
+  if (SCANpause) {
+    out.println("SCAN,STATE=PAUSED");
+    return;
+  }
+
   // Attendre que le premier balayage soit complet. Envoyer SCANEND avec un
   // tableau encore partiel ferait arreter le scan par ATS LAB.
   if (ScanEmpty) {
-    if (SCANpause) out.println("SCAN,STATE=PAUSED");
-    else out.println("SCAN,STATE=RUNNING");
+    out.println("SCAN,STATE=RUNNING");
     return;
   }
 

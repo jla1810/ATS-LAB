@@ -2,7 +2,7 @@ object frmSpectrum: TfrmSpectrum
   Left = 0
   Top = 0
   Caption = 'ATS LAB - SPECTRUM ANALYZER'
-  ClientHeight = 560
+  ClientHeight = 680
   ClientWidth = 920
   Color = 1184018
   Font.Charset = DEFAULT_CHARSET
@@ -13,6 +13,7 @@ object frmSpectrum: TfrmSpectrum
   Position = poScreenCenter
   OnClose = FormClose
   OnCreate = FormCreate
+  OnDestroy = FormDestroy
   TextHeight = 17
   object lblTitle: TLabel
     Left = 20
@@ -57,16 +58,36 @@ object frmSpectrum: TfrmSpectrum
     Left = 20
     Top = 132
     Width = 880
-    Height = 370
+    Height = 310
     OnPaint = pbSpectrumPaint
+  end
+  object lblWaterfall: TLabel
+    Left = 20
+    Top = 450
+    Width = 197
+    Height = 17
+    Caption = 'WATERFALL  -  SCANS RECENTS'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 11579568
+    Font.Height = -13
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object pbWaterfall: TPaintBox
+    Left = 20
+    Top = 473
+    Width = 880
+    Height = 140
+    OnPaint = pbWaterfallPaint
   end
   object btnClose: TButton
     Left = 805
-    Top = 518
+    Top = 632
     Width = 95
     Height = 30
     Caption = 'FERMER'
-    TabOrder = 6
+    TabOrder = 8
     OnClick = btnCloseClick
   end
   object lblStartFrequency: TLabel
@@ -210,5 +231,35 @@ object frmSpectrum: TfrmSpectrum
     ParentFont = False
     TabOrder = 5
     OnClick = btnStopClick
+  end
+  object btnExportCSV: TButton
+    Left = 20
+    Top = 632
+    Width = 105
+    Height = 30
+    Caption = 'EXPORT CSV'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 6
+    OnClick = btnExportCSVClick
+  end
+  object btnExportPNG: TButton
+    Left = 132
+    Top = 632
+    Width = 105
+    Height = 30
+    Caption = 'EXPORT PNG'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 7
+    OnClick = btnExportPNGClick
   end
 end
