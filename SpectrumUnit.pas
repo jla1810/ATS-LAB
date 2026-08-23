@@ -4,8 +4,9 @@ interface
 
 uses
   Winapi.Windows,
-  System.SysUtils, System.Classes, System.Math,
-  Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.ExtCtrls, Vcl.StdCtrls;
+  System.SysUtils, System.Classes, System.Math, System.Generics.Collections,
+  Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.ExtCtrls, Vcl.StdCtrls,
+  Vcl.Dialogs;
 
 type
   TSpectrumStopEvent = procedure(Sender: TObject) of object;
@@ -34,12 +35,16 @@ type
     FReceiving: Boolean;
     FReceivedCount: Integer;
     FSelectedIndex: Integer;
+    FPeakIndices: TArray<Integer>;
+    FNoiseFloor: Integer;
+    FPeakThreshold: Integer;
     FOnStopRequest: TSpectrumStopEvent;
     FOnScanEnd: TSpectrumScanEndEvent;
     FOnTuneRequest: TSpectrumTuneEvent;
     procedure ClearData;
     procedure UpdateInfo;
     procedure UpdateProgress;
+    procedure DetectPeaks;
     function ValueAfterKey(const ALine, AKey: string): string;
   public
     procedure BeginScan;
@@ -74,7 +79,12 @@ begin
   FReceiving := False;
   FReceivedCount := 0;
   FSelectedIndex := -1;
+  FNoiseFloor := 0;
+  FPeakThreshold := 6;
+  SetLength(FPeakIndices, 0);
   pbSpectrum.OnMouseDown := pbSpectrumMouseDown;
+  pbSpectrum.Hint := 'Clic gauche : accord   Clic droit : seuil des marqueurs';
+  pbSpectrum.ShowHint := True;
   lblRange.Caption := 'En attente des donnees du scanner ATS...';
   lblPeak.Caption := 'PIC : ---';
 end;
@@ -89,6 +99,8 @@ begin
   FReceiving := False;
   FReceivedCount := 0;
   FSelectedIndex := -1;
+  FNoiseFloor := 0;
+  SetLength(FPeakIndices, 0);
   pbSpectrum.Invalidate;
 end;
 
@@ -194,10 +206,56 @@ begin
   if SameText(L, 'SCANEND') then
   begin
     FReceiving := False;
+    DetectPeaks;
     UpdateInfo;
     pbSpectrum.Invalidate;
     if Assigned(FOnScanEnd) then
       FOnScanEnd(Self);
+  end;
+end;
+
+procedure TfrmSpectrum.DetectPeaks;
+const
+  CMaxPeakMarkers = 16;
+  CMinPeakDistance = 8;
+var
+  SortedRSSI: TArray<Integer>;
+  I, PeakCount, LastIndex: Integer;
+begin
+  SetLength(FPeakIndices, 0);
+  FNoiseFloor := 0;
+  if FCount < 3 then
+    Exit;
+
+  SortedRSSI := Copy(FRSSI);
+  TArray.Sort<Integer>(SortedRSSI);
+  FNoiseFloor := SortedRSSI[FCount div 2];
+
+  PeakCount := 0;
+  LastIndex := -CMinPeakDistance;
+  for I := 1 to FCount - 2 do
+  begin
+    if (FRSSI[I] < FNoiseFloor + FPeakThreshold) or
+       (FRSSI[I] < FRSSI[I - 1]) or
+       (FRSSI[I] <= FRSSI[I + 1]) then
+      Continue;
+
+    if (PeakCount > 0) and (I - LastIndex < CMinPeakDistance) then
+    begin
+      if FRSSI[I] > FRSSI[LastIndex] then
+      begin
+        FPeakIndices[PeakCount - 1] := I;
+        LastIndex := I;
+      end;
+      Continue;
+    end;
+
+    SetLength(FPeakIndices, PeakCount + 1);
+    FPeakIndices[PeakCount] := I;
+    Inc(PeakCount);
+    LastIndex := I;
+    if PeakCount >= CMaxPeakMarkers then
+      Break;
   end;
 end;
 
@@ -223,8 +281,10 @@ begin
   end;
 
   EndKHz := FBaseKHz + ((FCount - 1) * FStepKHz);
-  lblRange.Caption := Format('%.3f MHz  -  %.3f MHz    Pas %.3f kHz',
-    [FBaseKHz / 1000, EndKHz / 1000, FStepKHz]);
+  lblRange.Caption := Format(
+    '%.3f MHz  -  %.3f MHz    Pas %.3f kHz    Signaux %d (bruit %d, seuil +%d)',
+    [FBaseKHz / 1000, EndKHz / 1000, FStepKHz,
+     Length(FPeakIndices), FNoiseFloor, FPeakThreshold]);
 
   PeakValue := -1;
   PeakIndex := 0;
@@ -243,11 +303,29 @@ end;
 procedure TfrmSpectrum.pbSpectrumMouseDown(Sender: TObject;
   Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
-  PlotW, PlotH: Integer;
+  PlotW, PlotH, I, MarkerX, ClickedIndex, NewThreshold: Integer;
   FrequencyKHz: Int64;
+  ThresholdText: string;
 begin
-  if (Button <> mbLeft) or FReceiving or
-     (FCount < 2) or (FStepKHz <= 0) then
+  if FReceiving or (FCount < 2) or (FStepKHz <= 0) then
+    Exit;
+
+  if Button = mbRight then
+  begin
+    ThresholdText := IntToStr(FPeakThreshold);
+    if InputQuery('SEUIL DE DETECTION',
+      'RSSI au-dessus du bruit (1 a 30) :', ThresholdText) and
+       TryStrToInt(Trim(ThresholdText), NewThreshold) and
+       (NewThreshold >= 1) and (NewThreshold <= 30) then
+    begin
+      FPeakThreshold := NewThreshold;
+      DetectPeaks;
+      UpdateInfo;
+      pbSpectrum.Invalidate;
+    end;
+    Exit;
+  end;
+  if Button <> mbLeft then
     Exit;
 
   PlotW := Max(1, pbSpectrum.ClientWidth -
@@ -260,9 +338,20 @@ begin
      (Y > CSpectrumMarginT + PlotH) then
     Exit;
 
-  FSelectedIndex := EnsureRange(
+  ClickedIndex := EnsureRange(
     Round((X - CSpectrumMarginL) * (FCount - 1) / PlotW),
     0, FCount - 1);
+  for I := 0 to High(FPeakIndices) do
+  begin
+    MarkerX := CSpectrumMarginL +
+      MulDiv(FPeakIndices[I], PlotW, FCount - 1);
+    if Abs(X - MarkerX) <= 6 then
+    begin
+      ClickedIndex := FPeakIndices[I];
+      Break;
+    end;
+  end;
+  FSelectedIndex := ClickedIndex;
   FrequencyKHz := Round(FBaseKHz + (FSelectedIndex * FStepKHz));
   lblPeak.Caption := Format(
     'SELECTION : %.3f MHz   RSSI %d   SNR %d',
@@ -277,13 +366,14 @@ procedure TfrmSpectrum.pbSpectrumPaint(Sender: TObject);
 var
   C: TCanvas;
   R: TRect;
-  PlotW, PlotH, I, X, Y, PrevX, PrevY, Grid: Integer;
+  PlotW, PlotH, I, X, Y, PrevX, PrevY, Grid, PeakIndex: Integer;
   MaxRSSI, ScaleMax: Integer;
   FreqKHz: Double;
   S: string;
 begin
   C := pbSpectrum.Canvas;
   R := pbSpectrum.ClientRect;
+  C.Brush.Style := bsSolid;
   C.Brush.Color := RGB(14, 18, 17);
   C.FillRect(R);
 
@@ -345,6 +435,20 @@ begin
     PrevY := Y;
   end;
   C.Pen.Width := 1;
+
+  C.Pen.Color := RGB(255, 150, 35);
+  C.Brush.Color := RGB(255, 150, 35);
+  for I := 0 to High(FPeakIndices) do
+  begin
+    PeakIndex := FPeakIndices[I];
+    if (PeakIndex < 0) or (PeakIndex >= FCount) then
+      Continue;
+    X := CSpectrumMarginL + MulDiv(PeakIndex, PlotW, FCount - 1);
+    Y := CSpectrumMarginT + PlotH -
+      MulDiv(EnsureRange(FRSSI[PeakIndex], 0, ScaleMax), PlotH, ScaleMax);
+    C.Polygon([Point(X - 4, Y - 9), Point(X + 4, Y - 9), Point(X, Y - 2)]);
+  end;
+  C.Brush.Style := bsClear;
 
   if (FSelectedIndex >= 0) and (FSelectedIndex < FCount) then
   begin

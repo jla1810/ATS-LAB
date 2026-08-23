@@ -296,6 +296,9 @@ long elapsedBat     = 0;
 bool  SCANbut             = false;
 int   currentScanFreq;
 int   pcScanDataCount = 0;
+unsigned long scanTuneStarted = 0;
+const unsigned long SCAN_SETTLE_FM_MS = 35;
+const unsigned long SCAN_SETTLE_HAM_MS = 60;
 int   posScanFreq;
 int   posScan;
 int   posScanLast;
@@ -2434,6 +2437,13 @@ void pcSendScanStatus(Print &out) {
 void pcSendScanData(Print &out) {
   if (!SCANbut || SCANstep <= 0) {
     out.println("ERR,SCAN,NO_DATA");
+    return;
+  }
+
+  // Attendre que le premier balayage soit complet. Envoyer SCANEND avec un
+  // tableau encore partiel ferait arreter le scan par ATS LAB.
+  if (ScanEmpty) {
+    out.println("SCAN,STATE=RUNNING");
     return;
   }
 
@@ -6773,6 +6783,10 @@ void DisplaySCAN() {
   if (setf) {
     setFreq(currentScanFreq + int((deltaScanLine - 159 + d + posScan) * SCANstep));
   } else {
+    const unsigned long settleMs =
+      (currentMode == FM) ? SCAN_SETTLE_FM_MS : SCAN_SETTLE_HAM_MS;
+    if ((millis() - scanTuneStarted) < settleMs) return;
+
     if (posScan == posScanLast) ScanValueRSSI[posScan] = (ScanValueRSSI[posScan] + getSignal(true)) / 2; else ScanValueRSSI[posScan] = getSignal(true);
     if (posScan == posScanLast) ScanValueSNR[posScan] = (ScanValueSNR[posScan] + getSignal(false)) / 2; else ScanValueSNR[posScan] = getSignal(false);
     if (ScanValueSNR[posScan] >= ScanMarkSNR && posScan > ScanBeginBand && posScan < ScanEndBand) ScanMark[posScan] = true;
@@ -6832,6 +6846,7 @@ void setFreq(float f) {
 // ============================================================================
   posScanFreq = f;
   commSetFreq(f);
+  if (SCANbut) scanTuneStarted = millis();
   if (isSSBLikeMode()) si4735.setAutomaticGainControl(1, 0); //AGC disabled
 }
 
@@ -6856,6 +6871,7 @@ void freqUp() {
 // ============================================================================
   posScanFreq++;
   commFreqUp();
+  if (SCANbut) scanTuneStarted = millis();
   if (isSSBLikeMode()) si4735.setAutomaticGainControl(1, 0); //AGC disabled
 }
 
