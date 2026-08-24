@@ -2190,6 +2190,7 @@ void returnLayer() {
 // PROTOCOLE ATS LAB - COMMANDES PC / WIFI
 // ============================================================================
 const char* pcModeName(uint8_t mode) {
+  if (mode == USB && CWShift) return "CW";
   switch (mode) {
     case FM:  return "FM";
     case AM:  return "AM";
@@ -2209,7 +2210,7 @@ uint32_t pcGetTunedFrequencyHz() {
 
   if (isSSBLikeMode()) {
     freqHz -= (int64_t)band[bandIdx].lastBFO;
-    if (currentMode == CW && CWShift) freqHz += 700LL;
+    if (CWShift) freqHz += 700LL;
   }
 
   if (freqHz < 0) freqHz = 0;
@@ -2296,14 +2297,33 @@ bool pcSetMode(const String &modeText) {
   m.trim();
   m.toUpperCase();
   uint8_t newMode;
+  bool newCW = false;
   if      (m == "FM")  newMode = FM;
   else if (m == "AM")  newMode = AM;
   else if (m == "LSB") newMode = LSB;
   else if (m == "USB") newMode = USB;
-  else if (m == "CW")  newMode = CW;
+  else if (m == "CW") {
+    // Le SI4735 n'a pas de mode CW natif : le firmware utilise USB avec
+    // un decalage BFO de 700 Hz, comme lors d'une selection sur l'ecran ATS.
+    newMode = USB;
+    newCW = true;
+  }
   else return false;
   if (bandIdx == BAND_FM && newMode != FM) return false;
   if (bandIdx != BAND_FM && newMode == FM) return false;
+
+  if (CWShift && !newCW) {
+    currentBFO -= 700;
+    band[bandIdx].lastBFO = currentBFO;
+    freqDec = currentBFO;
+    CWShift = false;
+  } else if (!CWShift && newCW) {
+    currentBFO += 700;
+    band[bandIdx].lastBFO = currentBFO;
+    freqDec = currentBFO;
+    CWShift = true;
+  }
+
   currentMode = newMode;
   band[bandIdx].prefmod = currentMode;
   ssbLoaded = false;
