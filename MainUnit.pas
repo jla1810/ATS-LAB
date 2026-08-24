@@ -288,7 +288,8 @@ type
     procedure SpectrumPauseRequest(Sender: TObject);
     procedure SpectrumResumeRequest(Sender: TObject);
     procedure SpectrumScanEnded(Sender: TObject);
-    procedure SpectrumTuneRequested(Sender: TObject; AFrequencyKHz: Int64);
+    function SpectrumTuneRequested(Sender: TObject;
+      AFrequencyKHz: Int64): Boolean;
     procedure SpectrumFavoriteRequested(Sender: TObject);
     procedure AbortSpectrumScan(const AReason: string);
   end;
@@ -2096,11 +2097,12 @@ begin
   UpdateDisplay;
 end;
 
-procedure TfrmMain.SpectrumTuneRequested(Sender: TObject;
-  AFrequencyKHz: Int64);
+function TfrmMain.SpectrumTuneRequested(Sender: TObject;
+  AFrequencyKHz: Int64): Boolean;
 var
   MinHz, MaxHz: Int64;
 begin
+  Result := False;
   if IsFrontPanelLocked or not FPowerOn or
      not IsSpectrumScanBandActive or
      (FATSConnection = nil) or not FATSConnection.IsAlive then
@@ -2120,7 +2122,9 @@ begin
   UpdateDisplay;
   UpdateModeImage;
   UpdateModeLamps;
-  SendATSCommand(TATSProtocol.SetFrequencyKHz(AFrequencyKHz));
+  Result := SendATSCommand(TATSProtocol.SetFrequencyKHz(AFrequencyKHz));
+  if not Result then
+    Exit;
   SaveCurrentHamBandMemory;
   if FInRadioBand then
     SaveCurrentRadioBandMemory;
@@ -2522,32 +2526,39 @@ begin
   if AStatus.HasBand then
     SyncBandFromStatus(AStatus.Band);
 
-  if AStatus.FrequencyKHz = FLastRemoteFrequencyKHz then
-    Inc(FRemoteFrequencyConfirmCount)
-  else
+  if AStatus.HasFrequency then
   begin
-    FLastRemoteFrequencyKHz := AStatus.FrequencyKHz;
-    FRemoteFrequencyConfirmCount := 1;
+    if AStatus.FrequencyKHz = FLastRemoteFrequencyKHz then
+      Inc(FRemoteFrequencyConfirmCount)
+    else
+    begin
+      FLastRemoteFrequencyKHz := AStatus.FrequencyKHz;
+      FRemoteFrequencyConfirmCount := 1;
+    end;
+
+    if FRemoteFrequencyConfirmCount >= 2 then
+    begin
+      RemoteFrequencyHz := AStatus.FrequencyKHz * 1000;
+      GetActiveBandLimits(MinHz, MaxHz);
+      if (RemoteFrequencyHz >= MinHz) and (RemoteFrequencyHz <= MaxHz) then
+        FFrequencyHz := RemoteFrequencyHz;
+    end;
   end;
 
-  if FRemoteFrequencyConfirmCount >= 2 then
+  NewMode := '';
+  if AStatus.HasMode then
   begin
-    RemoteFrequencyHz := AStatus.FrequencyKHz * 1000;
-    GetActiveBandLimits(MinHz, MaxHz);
-    if (RemoteFrequencyHz >= MinHz) and (RemoteFrequencyHz <= MaxHz) then
-      FFrequencyHz := RemoteFrequencyHz;
-  end;
+    NewMode := UpperCase(Trim(AStatus.Mode));
+    if NewMode = 'CWR' then
+      NewMode := 'CW-R';
 
-  NewMode := UpperCase(Trim(AStatus.Mode));
-  if NewMode = 'CWR' then
-    NewMode := 'CW-R';
-
-  if NewMode = FLastRemoteMode then
-    Inc(FRemoteModeConfirmCount)
-  else
-  begin
-    FLastRemoteMode := NewMode;
-    FRemoteModeConfirmCount := 1;
+    if NewMode = FLastRemoteMode then
+      Inc(FRemoteModeConfirmCount)
+    else
+    begin
+      FLastRemoteMode := NewMode;
+      FRemoteModeConfirmCount := 1;
+    end;
   end;
 
   ReceivedMode := NewMode;

@@ -273,7 +273,7 @@ bool VOLbut         = false;
 bool AudioMut       = false;
 bool Mutestat       = false;
 bool AGCgainbut     = false;
-bool writingEeprom  = false;
+volatile bool writingEeprom = false;
 
 // =============== Squelch Functionality ============ LWH
 bool SquelchUsesRSSI = true; // When true, the squelch uses RSSI, when false the squelch uses SNR
@@ -1164,8 +1164,6 @@ void connectWifi() {
   WiFi.mode(WIFI_STA);
   delay(100);
 
-  diagnoseTargetWifi();
-
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID.c_str(), WIFI_PASS.c_str());
 
@@ -1552,6 +1550,9 @@ void drawProgress(uint8_t percentage, String text) {
 void SaveInEeprom (void* arg)  {
 // ============================================================================
   while (1) {
+    // Empêcher les commandes locales de modifier l'état pendant la création
+    // de l'instantané qui sera écrit en EEPROM.
+    writingEeprom = true;
     OPTpack();
     scanOPTpack();
 
@@ -1618,7 +1619,8 @@ void SaveInEeprom (void* arg)  {
     storage.RETROband = RETROband;
     storage.SCANscale = SCANscale;
     storage.boolOpt = boolOpt;
-      storage.SquelchVal = currentSquelch; //LWH
+    storage.SquelchVal = currentSquelch; //LWH
+    writingEeprom = false;
 
     for (unsigned int t = 0; t < sizeof(storage); t++) {
       delay(1);
@@ -2201,6 +2203,24 @@ const char* pcModeName(uint8_t mode) {
   }
 }
 
+const char* pcBandProtocolName() {
+  switch (bandIdx) {
+    case BAND_FM:   return "FM";
+    case BAND_LW:   return "LW";
+    case BAND_MW:   return "MW";
+    case BAND_160M: return "160M";
+    case BAND_80M:  return "80M";
+    case BAND_40M:  return "40M";
+    case BAND_20M:  return "20M";
+    case BAND_16M:  return "17M";
+    case BAND_14M:  return "15M";
+    case BAND_12M:  return "12M";
+    case BAND_10M:  return "10M";
+    case BAND_CB:   return "CB";
+    default:        return "SW";
+  }
+}
+
 uint32_t pcGetTunedFrequencyHz() {
   if (currentMode == FM) {
     return (uint32_t)si4735.getFrequency() * 10000UL;
@@ -2237,7 +2257,8 @@ void pcSendStatus(Print &out) {
   out.print(",SQ="); out.print(currentSquelch);
   out.print(",RSSI="); out.print(pcRssi);
   out.print(",SNR="); out.print(pcSnr);
-  out.print(",BAND="); out.println(band[bandIdx].bandName);
+  out.print(",BFO="); out.print(currentBFOmanu);
+  out.print(",BAND="); out.println(pcBandProtocolName());
 }
 
 int pcFindBandForFrequency(uint32_t freqKHz, uint16_t internalFreq) {
@@ -2279,6 +2300,17 @@ bool pcSetFrequencyKHz(uint32_t freqKHz) {
   else return false;
 
   int newBand = pcFindBandForFrequency(freqKHz, internalFreq);
+  if (newBand != bandIdx) {
+    // Le CW est un USB décale de 700 Hz. Restaurer la mémoire BFO de
+    // l'ancienne bande avant de charger celle de la nouvelle bande.
+    if (CWShift) {
+      currentBFO -= 700;
+      band[bandIdx].lastBFO = currentBFO;
+      CWShift = false;
+    }
+    currentBFO = band[newBand].lastBFO;
+    freqDec = currentBFO;
+  }
   bandIdx = newBand;
   currentMode = (newBand == BAND_FM) ? FM : band[newBand].prefmod;
   band[bandIdx].currentFreq = internalFreq;
@@ -2679,33 +2711,97 @@ void pcSendRdsStatus(Print &out) {
     out.println("RDS,STATE=WAITING");
 }
 
+bool pcTryParseInt(const String &text, int &value) {
+  String s = text;
+  s.trim();
+  if (s.length() == 0) return false;
+
+  int pos = 0;
+  bool negative = false;
+  if (s[0] == '+' || s[0] == '-') {
+    negative = s[0] == '-';
+    pos = 1;
+  }
+  if (pos >= s.length()) return false;
+
+  int64_t parsed = 0;
+  for (; pos < s.length(); pos++) {
+    char c = s[pos];
+    if (c < '0' || c > '9') return false;
+    parsed = (parsed * 10) + (c - '0');
+    if ((!negative && parsed > 2147483647LL) ||
+        (negative && parsed > 2147483648LL)) return false;
+  }
+
+  value = negative ? (int)(-parsed) : (int)parsed;
+  return true;
+}
+
+bool pcTryParseUInt32(const String &text, uint32_t &value) {
+  int parsed;
+  if (!pcTryParseInt(text, parsed) || parsed < 0) return false;
+  value = (uint32_t)parsed;
+  return true;
+}
+
+bool pcTryParseFloat(const String &text, float &value) {
+  String s = text;
+  s.trim();
+  if (s.length() == 0) return false;
+
+  int pos = 0;
+  bool haveDigit = false;
+  bool havePoint = false;
+  if (s[0] == '+' || s[0] == '-') pos = 1;
+  if (pos >= s.length()) return false;
+
+  for (; pos < s.length(); pos++) {
+    char c = s[pos];
+    if (c >= '0' && c <= '9') {
+      haveDigit = true;
+    } else if (c == '.' && !havePoint) {
+      havePoint = true;
+    } else {
+      return false;
+    }
+  }
+  if (!haveDigit) return false;
+  value = s.toFloat();
+  return isfinite(value);
+}
+
 // ============================================================================
 // PROTOCOLE ATS LAB - PARSEUR DE COMMANDES
 // ============================================================================
 void processControlCommand(String cmd, Print &out) {
-  if (cmd == "ID?" || cmd == "IDENT?" || cmd == "VERSION?") {
-    out.println(F("ID,ATS-25X2,FW=6.0,HW=ESP32,CHIP=SI4735,BT=SPP"));
-    return;
-  }
-
   cmd.trim();
   if (cmd.length() == 0) return;
   String upper = cmd;
   upper.toUpperCase();
 
-  if (upper == "PING") {
+  if (upper == "ID?" || upper == "IDENT?" || upper == "VERSION?") {
+    out.println(F("ID,ATS-25X2,FW=6.0,HW=ESP32,CHIP=SI4735,BT=SPP"));
+  } else if (upper == "PING") {
     out.println("OK,PONG");
   } else if (upper == "STATUS?" || upper == "GETSTATUS") {
     pcSendStatus(out);
   } else if (upper.startsWith("FREQ=")) {
-    uint32_t f = (uint32_t)cmd.substring(5).toInt();
+    uint32_t f;
+    if (!pcTryParseUInt32(cmd.substring(5), f)) {
+      out.println("ERR,FREQ");
+      return;
+    }
     out.println(pcSetFrequencyKHz(f) ? "OK,FREQ" : "ERR,FREQ");
     pcSendStatus(out);
   } else if (upper.startsWith("MODE=")) {
     out.println(pcSetMode(cmd.substring(5)) ? "OK,MODE" : "ERR,MODE");
     pcSendStatus(out);
   } else if (upper.startsWith("VOL=")) {
-    int v = cmd.substring(4).toInt();
+    int v;
+    if (!pcTryParseInt(cmd.substring(4), v)) {
+      out.println("ERR,VOL");
+      return;
+    }
     if (v < MinVOL) v = MinVOL;
     if (v > MaxVOL) v = MaxVOL;
     currentVOL = v;
@@ -2715,7 +2811,11 @@ void processControlCommand(String cmd, Print &out) {
     out.println("OK,VOL");
     pcSendStatus(out);
   } else if (upper.startsWith("SQ=")) {
-    int sq = cmd.substring(3).toInt();
+    int sq;
+    if (!pcTryParseInt(cmd.substring(3), sq)) {
+      out.println("ERR,SQ");
+      return;
+    }
     if (sq < MinSQUELCH) sq = MinSQUELCH;
     if (sq > MaxSQUELCH) sq = MaxSQUELCH;
     currentSquelch = sq;
@@ -2730,11 +2830,19 @@ void processControlCommand(String cmd, Print &out) {
   } else if (upper == "BFO?" || upper == "BFO=STATUS") {
     pcSendBfoStatus(out);
   } else if (upper.startsWith("BFOSTEP=")) {
-    int stepHz = cmd.substring(8).toInt();
+    int stepHz;
+    if (!pcTryParseInt(cmd.substring(8), stepHz)) {
+      out.println("ERR,BFO,STEP");
+      return;
+    }
     out.println(pcSetBfoStep(stepHz) ? "OK,BFO,STEP" : "ERR,BFO,STEP");
     pcSendBfoStatus(out);
   } else if (upper.startsWith("BFO=")) {
-    int bfoHz = cmd.substring(4).toInt();
+    int bfoHz;
+    if (!pcTryParseInt(cmd.substring(4), bfoHz)) {
+      out.println("ERR,BFO,VALUE");
+      return;
+    }
     out.println(pcSetManualBfo(bfoHz) ? "OK,BFO" : "ERR,BFO,MODE");
     pcSendBfoStatus(out);
   } else if (upper.startsWith("SCAN=START,BASE_KHZ=")) {
@@ -2742,8 +2850,11 @@ void processControlCommand(String cmd, Print &out) {
     uint32_t baseKHz = 0;
     float stepKHz = 0;
     if (stepToken > 20) {
-      baseKHz = (uint32_t)cmd.substring(20, stepToken).toInt();
-      stepKHz = cmd.substring(stepToken + 10).toFloat();
+      if (!pcTryParseUInt32(cmd.substring(20, stepToken), baseKHz) ||
+          !pcTryParseFloat(cmd.substring(stepToken + 10), stepKHz)) {
+        out.println("ERR,SCAN,PARAMETERS");
+        return;
+      }
     }
     out.println(pcStartScan(baseKHz, stepKHz) ?
       "OK,SCAN,START" : "ERR,SCAN,PARAMETERS");
@@ -6820,9 +6931,13 @@ void drawSCANline(int n) {
     prevScaleLine = tmpLine;
     if (!ScanScaleLine[n]) ScanScaleLine[n] = 1;
 
-    int tmpValuePrev = ScanValueRSSI[n - 1];
-    if (tmpValuePrev < 82) tmpValuePrev = 82;
-    if (n == 0 || n == int(currentScanLine) + 1) tft.drawPixel(n, tmpValue, TFT_SILVER); else tft.drawLine(n - 1, tmpValuePrev, n, tmpValue, TFT_SILVER);
+    if (n == 0 || n == int(currentScanLine) + 1) {
+      tft.drawPixel(n, tmpValue, TFT_SILVER);
+    } else {
+      int tmpValuePrev = ScanValueRSSI[n - 1];
+      if (tmpValuePrev < 82) tmpValuePrev = 82;
+      tft.drawLine(n - 1, tmpValuePrev, n, tmpValue, TFT_SILVER);
+    }
   }
 
   if (ScanMark[n]) tftTransRect(n, 95, 1, 5, TFT_YELLOW);
@@ -7415,7 +7530,7 @@ void displMEMO() {
 int bandFreq(float freq) {
 // ============================================================================
   int n = 0;
-  if (freq < 64 || freq > 108) {
+  if (freq < 87.5 || freq > 108) {
     n = 1;
     bool flag = false;
     while (n < 29 && !flag) if (freq >= band[n].minimumFreq && freq <= band[n].maximumFreq) flag = true; else n++;

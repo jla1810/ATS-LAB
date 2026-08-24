@@ -123,6 +123,7 @@
         <DCCReference Include="FavoritesUnit.pas">
             <Form>frmFavorites</Form>
         </DCCReference>
+        <DCCReference Include="SplashUnit.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

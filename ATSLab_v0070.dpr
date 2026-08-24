@@ -1,6 +1,7 @@
 ﻿program ATSLab_v0070;
 
 uses
+  Winapi.Windows,
   Vcl.Forms,
   uSteamVisuals in 'uSteamVisuals.pas',
   uRotatingNeedle in 'uRotatingNeedle.pas',
@@ -16,14 +17,31 @@ uses
   FrequencyInputUnit in 'FrequencyInputUnit.pas' {frmFrequencyInput},
   AboutUnit in 'AboutUnit.pas' {AboutForm},
   SpectrumUnit in 'SpectrumUnit.pas' {frmSpectrum},
-  FavoritesUnit in 'FavoritesUnit.pas' {frmFavorites};
+  FavoritesUnit in 'FavoritesUnit.pas' {frmFavorites},
+  SplashUnit in 'SplashUnit.pas';
 
 {$R *.res}
+
+var
+  Splash: TfrmSplash;
+  SplashStart: UInt64;
+  SplashElapsed: UInt64;
 
 begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
   Application.Title := 'ATS LAB v1.1.1';
-  Application.CreateForm(TfrmMain, frmMain);
+  Splash := TfrmSplash.CreateNew(nil);
+  try
+    SplashStart := GetTickCount64;
+    Splash.Show;
+    Splash.Update;
+    Application.CreateForm(TfrmMain, frmMain);
+    SplashElapsed := GetTickCount64 - SplashStart;
+    if SplashElapsed < 2500 then
+      Sleep(Cardinal(2500 - SplashElapsed));
+  finally
+    Splash.Free;
+  end;
   Application.Run;
 end.

@@ -11,8 +11,8 @@ uses
 type
   TSpectrumStopEvent = procedure(Sender: TObject) of object;
   TSpectrumScanEndEvent = procedure(Sender: TObject) of object;
-  TSpectrumTuneEvent = procedure(Sender: TObject;
-    AFrequencyKHz: Int64) of object;
+  TSpectrumTuneEvent = function(Sender: TObject;
+    AFrequencyKHz: Int64): Boolean of object;
   TSpectrumStartEvent = procedure(Sender: TObject;
     AStartMHz, AStepKHz: Double) of object;
 
@@ -89,7 +89,7 @@ type
     procedure DetectPeaks;
     procedure UpdateStationList;
     procedure SelectStationFromList;
-    procedure TuneSelectedFrequency;
+    function TuneSelectedFrequency: Boolean;
     procedure DrawSpectrum(const ACanvas: TCanvas; const ARect: TRect);
     procedure UpdateExportButtons;
     procedure AppendWaterfallLine;
@@ -145,7 +145,7 @@ begin
   FReceivedCount := 0;
   FSelectedIndex := -1;
   FNoiseFloor := 0;
-  FPeakThreshold := 6;
+  FPeakThreshold := 8;
   SetLength(FPeakIndices, 0);
   pbSpectrum.OnMouseDown := pbSpectrumMouseDown;
   pbSpectrum.Hint := 'Clic gauche : accord   Clic droit : seuil des marqueurs';
@@ -480,8 +480,7 @@ begin
   if FReceiving or (FSelectedIndex < 0) or
      (FSelectedIndex >= FCount) then
     Exit;
-  TuneSelectedFrequency;
-  if Assigned(FOnFavoriteRequest) then
+  if TuneSelectedFrequency and Assigned(FOnFavoriteRequest) then
     FOnFavoriteRequest(Self);
 end;
 
@@ -637,9 +636,13 @@ procedure TfrmSpectrum.DetectPeaks;
 const
   CMaxPeakMarkers = 16;
   CMinPeakDistance = 8;
+  CFMRasterKHz = 100.0;
 var
   SortedRSSI: TArray<Integer>;
-  I, PeakCount, LastIndex: Integer;
+  I, PeakCount, LastIndex, RegionStart, RegionEnd, SnappedIndex: Integer;
+  IsFMScan: Boolean;
+  PeakFrequencyKHz, SnappedFrequencyKHz: Double;
+  Weight, WeightSum, WeightedIndex: Double;
 begin
   SetLength(FPeakIndices, 0);
   FNoiseFloor := 0;
@@ -649,6 +652,61 @@ begin
   SortedRSSI := Copy(FRSSI);
   TArray.Sort<Integer>(SortedRSSI);
   FNoiseFloor := SortedRSSI[FCount div 2];
+
+  { Une trame FM peut dépasser très légèrement 108 MHz à son dernier point
+    lorsque COUNT résulte d'un arrondi au pas. La fréquence de base suffit à
+    identifier sans ambiguïté la FM : les autres bandes ATS restent sous
+    30 MHz. }
+  IsFMScan := (FBaseKHz >= 87500.0) and (FBaseKHz <= 108000.0);
+
+  { En FM, une seule émission large forme souvent un plateau avec plusieurs
+    maxima locaux. Regrouper toute zone continue située au-dessus du seuil,
+    puis utiliser son centre pondéré par le RSSI. }
+  if IsFMScan and (FStepKHz > 0) then
+  begin
+    I := 0;
+    PeakCount := 0;
+    while (I < FCount) and (PeakCount < CMaxPeakMarkers) do
+    begin
+      while (I < FCount) and
+            (FRSSI[I] < FNoiseFloor + FPeakThreshold) do
+        Inc(I);
+      if I >= FCount then
+        Break;
+
+      RegionStart := I;
+      WeightSum := 0;
+      WeightedIndex := 0;
+      while (I < FCount) and
+            (FRSSI[I] >= FNoiseFloor + FPeakThreshold) do
+      begin
+        Weight := FRSSI[I] - FNoiseFloor;
+        WeightSum := WeightSum + Weight;
+        WeightedIndex := WeightedIndex + (I * Weight);
+        Inc(I);
+      end;
+      RegionEnd := I - 1;
+
+      if WeightSum > 0 then
+        SnappedIndex := EnsureRange(Round(WeightedIndex / WeightSum),
+          RegionStart, RegionEnd)
+      else
+        SnappedIndex := (RegionStart + RegionEnd) div 2;
+
+      PeakFrequencyKHz := FBaseKHz + (SnappedIndex * FStepKHz);
+      SnappedFrequencyKHz := Round(PeakFrequencyKHz / CFMRasterKHz) *
+        CFMRasterKHz;
+      SnappedIndex := EnsureRange(
+        Round((SnappedFrequencyKHz - FBaseKHz) / FStepKHz),
+        0, FCount - 1);
+
+      SetLength(FPeakIndices, PeakCount + 1);
+      FPeakIndices[PeakCount] := SnappedIndex;
+      Inc(PeakCount);
+    end;
+    UpdateStationList;
+    Exit;
+  end;
 
   PeakCount := 0;
   LastIndex := -CMinPeakDistance;
@@ -676,6 +734,7 @@ begin
     if PeakCount >= CMaxPeakMarkers then
       Break;
   end;
+
   UpdateStationList;
 end;
 
@@ -739,16 +798,17 @@ begin
   pbSpectrum.Invalidate;
 end;
 
-procedure TfrmSpectrum.TuneSelectedFrequency;
+function TfrmSpectrum.TuneSelectedFrequency: Boolean;
 var
   FrequencyKHz: Int64;
 begin
+  Result := False;
   if FReceiving or (FSelectedIndex < 0) or
      (FSelectedIndex >= FCount) or (FStepKHz <= 0) then
     Exit;
   FrequencyKHz := Round(FBaseKHz + (FSelectedIndex * FStepKHz));
   if Assigned(FOnTuneRequest) then
-    FOnTuneRequest(Self, FrequencyKHz);
+    Result := FOnTuneRequest(Self, FrequencyKHz);
 end;
 
 procedure TfrmSpectrum.UpdateProgress;

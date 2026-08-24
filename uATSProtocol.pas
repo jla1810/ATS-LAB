@@ -16,6 +16,8 @@ type
     RSSI: Integer;
     SNR: Integer;
     Band: string;
+    HasFrequency: Boolean;
+    HasMode: Boolean;
     HasVolume: Boolean;
     HasSquelch: Boolean;
     HasBFO: Boolean;
@@ -170,6 +172,8 @@ begin
   AStatus.RSSI := 0;
   AStatus.SNR := 0;
   AStatus.Band := '';
+  AStatus.HasFrequency := False;
+  AStatus.HasMode := False;
   AStatus.HasVolume := False;
   AStatus.HasSquelch := False;
   AStatus.HasBFO := False;
@@ -192,7 +196,10 @@ begin
     if (Key = 'FREQ_KHZ') or (Key = 'FREQ') then
     begin
       if TryStrToInt64(Value, Int64Value) and (Int64Value > 0) then
+      begin
         AStatus.FrequencyKHz := Int64Value;
+        AStatus.HasFrequency := True;
+      end;
     end
     else if Key = 'MODE' then
     begin
@@ -200,7 +207,10 @@ begin
       if (Value = 'AM') or (Value = 'FM') or (Value = 'USB') or
          (Value = 'LSB') or (Value = 'CW') or (Value = 'CWR') or
          (Value = 'CW-R') then
+      begin
         AStatus.Mode := Value;
+        AStatus.HasMode := True;
+      end;
     end
     else if Key = 'VOL' then
     begin
@@ -249,9 +259,9 @@ begin
     end;
   end;
 
-  AStatus.Valid :=
-    (AStatus.FrequencyKHz > 0) and
-    (AStatus.Mode <> '');
+  AStatus.Valid := AStatus.HasFrequency or AStatus.HasMode or
+    AStatus.HasVolume or AStatus.HasSquelch or AStatus.HasBFO or
+    AStatus.HasRSSI or AStatus.HasSNR or AStatus.HasBand;
 
   Result := AStatus.Valid;
 end;
