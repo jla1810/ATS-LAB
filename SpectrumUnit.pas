@@ -34,6 +34,7 @@ type
     btnStop: TButton;
     btnExportCSV: TButton;
     btnExportPNG: TButton;
+    btnFavorite: TButton;
     lblWaterfall: TLabel;
     pbWaterfall: TPaintBox;
     procedure FormCreate(Sender: TObject);
@@ -49,6 +50,7 @@ type
     procedure btnStopClick(Sender: TObject);
     procedure btnExportCSVClick(Sender: TObject);
     procedure btnExportPNGClick(Sender: TObject);
+    procedure btnFavoriteClick(Sender: TObject);
     procedure pbWaterfallPaint(Sender: TObject);
   private
     FRSSI: TArray<Integer>;
@@ -74,6 +76,7 @@ type
     FOnStartRequest: TSpectrumStartEvent;
     FOnPauseRequest: TSpectrumStopEvent;
     FOnResumeRequest: TSpectrumStopEvent;
+    FOnFavoriteRequest: TSpectrumStopEvent;
     procedure ClearData;
     procedure UpdateInfo;
     procedure UpdateProgress;
@@ -98,6 +101,7 @@ type
     property OnStartRequest: TSpectrumStartEvent read FOnStartRequest write FOnStartRequest;
     property OnPauseRequest: TSpectrumStopEvent read FOnPauseRequest write FOnPauseRequest;
     property OnResumeRequest: TSpectrumStopEvent read FOnResumeRequest write FOnResumeRequest;
+    property OnFavoriteRequest: TSpectrumStopEvent read FOnFavoriteRequest write FOnFavoriteRequest;
   end;
 
 var
@@ -142,6 +146,7 @@ begin
   btnPause.Enabled := False;
   btnResume.Enabled := False;
   btnStop.Enabled := False;
+  btnFavorite.Enabled := False;
   UpdateExportButtons;
 end;
 
@@ -165,6 +170,7 @@ begin
   FDataComplete := False;
   FReceivedCount := 0;
   FSelectedIndex := -1;
+  btnFavorite.Enabled := False;
   FNoiseFloor := 0;
   SetLength(FPeakIndices, 0);
   UpdateExportButtons;
@@ -453,6 +459,14 @@ begin
   end;
 end;
 
+procedure TfrmSpectrum.btnFavoriteClick(Sender: TObject);
+begin
+  if (FSelectedIndex < 0) or (FSelectedIndex >= FCount) then
+    Exit;
+  if Assigned(FOnFavoriteRequest) then
+    FOnFavoriteRequest(Self);
+end;
+
 {
   Les méthodes d'export ci-dessus utilisent une copie autonome des données et
   du rendu. Elles ne modifient ni la fréquence courante ni la connexion ATS.
@@ -511,6 +525,8 @@ begin
     end;
     FReceiving := True;
     FDataComplete := False;
+    FSelectedIndex := -1;
+    btnFavorite.Enabled := False;
     UpdateExportButtons;
     FReceivedCount := 0;
     UpdateProgress;
@@ -715,6 +731,7 @@ begin
     end;
   end;
   FSelectedIndex := ClickedIndex;
+  btnFavorite.Enabled := True;
   FrequencyKHz := Round(FBaseKHz + (FSelectedIndex * FStepKHz));
   lblPeak.Caption := Format(
     'SELECTION : %.3f MHz   RSSI %d   SNR %d',

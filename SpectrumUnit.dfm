@@ -87,7 +87,7 @@ object frmSpectrum: TfrmSpectrum
     Width = 95
     Height = 30
     Caption = 'FERMER'
-    TabOrder = 8
+    TabOrder = 9
     OnClick = btnCloseClick
   end
   object lblStartFrequency: TLabel
@@ -261,5 +261,20 @@ object frmSpectrum: TfrmSpectrum
     ParentFont = False
     TabOrder = 7
     OnClick = btnExportPNGClick
+  end
+  object btnFavorite: TButton
+    Left = 244
+    Top = 632
+    Width = 112
+    Height = 30
+    Caption = 'FAVORIS'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 8
+    OnClick = btnFavoriteClick
   end
 end

@@ -15,7 +15,7 @@ uses
   uSteamButtonManager,
   SerialMonitorUnit,
   SerialConnectUnit, FrequencyInputUnit,
-  WifiCredentialsUnit, AboutUnit, SpectrumUnit,
+  WifiCredentialsUnit, AboutUnit, SpectrumUnit, FavoritesUnit,
   uATSConnection,
   uATSProtocol, Vcl.ActnMan, Vcl.ActnColorMaps,
   Vcl.Dialogs, System.UITypes;
@@ -277,6 +277,9 @@ type
       AState: Boolean);
     procedure UpdateConnectionInfo;
     procedure ShowAbout;
+    procedure ShowFavorites;
+    procedure RecallFavorite(const AFavorite: TFavoriteData);
+    function CurrentFavoriteBand: string;
     procedure RequestReceiverId;
     procedure ParseReceiverId(const ALine: string);
     procedure SpectrumStopRequest(Sender: TObject);
@@ -286,6 +289,7 @@ type
     procedure SpectrumResumeRequest(Sender: TObject);
     procedure SpectrumScanEnded(Sender: TObject);
     procedure SpectrumTuneRequested(Sender: TObject; AFrequencyKHz: Int64);
+    procedure SpectrumFavoriteRequested(Sender: TObject);
     procedure AbortSpectrumScan(const AReason: string);
   end;
 
@@ -406,6 +410,127 @@ begin
   );
 end;
 
+function TfrmMain.CurrentFavoriteBand: string;
+begin
+  Result := '';
+  if FHasCurrentHamBand then
+    Result := FHamBand
+  else if FInRadioBand and FHasCurrentRadioBand then
+  begin
+    case FCurrentRadioBand of
+      rbLW: Result := 'LW';
+      rbMW: Result := 'MW';
+      rbSW: Result := 'SW';
+      rbFM: Result := 'FM';
+    end;
+  end;
+end;
+
+procedure TfrmMain.ShowFavorites;
+var
+  Current, Selected: TFavoriteData;
+  IniFileName: string;
+begin
+  if not FPowerOn then
+    Exit;
+
+  Current.Name := '';
+  Current.Band := CurrentFavoriteBand;
+  Current.FrequencyHz := FFrequencyHz;
+  Current.Mode := FMode;
+  Current.Volume := FVolume;
+  Current.Squelch := FSquelch;
+  Current.BFO := FBFO;
+  IniFileName := ChangeFileExt(Application.ExeName, '.ini');
+
+  if TfrmFavorites.Execute(IniFileName, Current, Selected) then
+    RecallFavorite(Selected);
+end;
+
+procedure TfrmMain.RecallFavorite(const AFavorite: TFavoriteData);
+var
+  MinHz, MaxHz: Int64;
+  Band, Mode: string;
+begin
+  if not FPowerOn then
+    Exit;
+  if (AFavorite.FrequencyHz < CMinFrequencyHz) or
+     (AFavorite.FrequencyHz > CMaxFrequencyHz) or
+     ((AFavorite.FrequencyHz > 30000000) and
+      (AFavorite.FrequencyHz < 87500000)) then
+  begin
+    MessageDlg('La fréquence enregistrée dans ce favori n''est pas prise en charge.',
+      mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  Band := UpperCase(Trim(AFavorite.Band));
+  if (Band <> '') and not MatchText(Band,
+    ['160', '80', '40', '20', '17', '15', '12', '10', 'CB',
+     'LW', 'MW', 'SW', 'FM']) then
+  begin
+    MessageDlg('La bande enregistrée dans ce favori n''est pas valide.',
+      mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  if FScanEnabled then
+    AbortSpectrumScan('Scan arrêté par le rappel d''un favori.');
+
+  if Band <> '' then
+    SyncBandFromStatus(Band)
+  else
+    SelectBandForDirectFrequency(AFavorite.FrequencyHz);
+
+  GetActiveBandLimits(MinHz, MaxHz);
+  if (AFavorite.FrequencyHz < MinHz) or
+     (AFavorite.FrequencyHz > MaxHz) then
+  begin
+    MessageDlg(Format(
+      'Le favori "%s" contient une fréquence hors de sa bande %s.',
+      [AFavorite.Name, AFavorite.Band]), mtError, [mbOK], 0);
+    Exit;
+  end;
+
+  FFrequencyHz := AFavorite.FrequencyHz;
+  Mode := UpperCase(Trim(AFavorite.Mode));
+  if Mode = 'CWR' then
+    Mode := 'CW-R';
+  if not MatchText(Mode, ['AM', 'FM', 'USB', 'LSB', 'CW', 'CW-R']) then
+    Mode := 'AM';
+  FMode := Mode;
+  if FHasCurrentHamBand then
+    ApplyHamModeRules(FCurrentHamBand)
+  else if FInRadioBand and FHasCurrentRadioBand then
+    ApplyRadioModeRules(FCurrentRadioBand);
+
+  FVolume := EnsureRange(AFavorite.Volume, 0, 100);
+  FSquelch := EnsureRange(AFavorite.Squelch, 0, 100);
+  FBFO := EnsureRange(AFavorite.BFO, -3000, 3000);
+  FLocalControlUntil := GetTickCount64 + 1500;
+
+  UpdateDisplay;
+  UpdateModeImage;
+  UpdateModeButtons;
+  UpdateModeLamps;
+  UpdateBFOText;
+  UpdateKnobValues;
+
+  if (FATSConnection <> nil) and FATSConnection.IsAlive then
+  begin
+    SendATSCommand(TATSProtocol.SetFrequencyKHz(FFrequencyHz div 1000));
+    SendModeCommand(FMode);
+    SendATSCommand(TATSProtocol.SetVolume(FVolume));
+    SendATSCommand(TATSProtocol.SetSquelch(FSquelch));
+    if MatchText(FMode, ['USB', 'LSB', 'CW', 'CW-R']) then
+      SendATSCommand(TATSProtocol.SetBFO(FBFO));
+  end;
+
+  SaveCurrentHamBandMemory;
+  if FInRadioBand then
+    SaveCurrentRadioBandMemory;
+end;
+
 
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
@@ -462,6 +587,7 @@ FPowerOn := False;
   frmSpectrum.OnStartRequest := SpectrumStartRequest;
   frmSpectrum.OnPauseRequest := SpectrumPauseRequest;
   frmSpectrum.OnResumeRequest := SpectrumResumeRequest;
+  frmSpectrum.OnFavoriteRequest := SpectrumFavoriteRequested;
   FLocked := False;
   InitializeHamMemories;
   InitializeRadioMemories;
@@ -530,6 +656,7 @@ begin
     frmSpectrum.OnStartRequest := nil;
     frmSpectrum.OnPauseRequest := nil;
     frmSpectrum.OnResumeRequest := nil;
+    frmSpectrum.OnFavoriteRequest := nil;
   end;
   FreeAndNil(frmSpectrum);
 if FConnectionTimer <> nil then
@@ -862,6 +989,14 @@ begin
     { Le gestionnaire de boutons remplace le OnClick DFM.
       Rediriger donc vers le vrai traitement Scan/Spectrum. }
     hsScanClick(Sender);
+    Exit;
+  end;
+
+  if SameText(ACommand, 'MEM') then
+  begin
+    ShowFavorites;
+    if FButtonManager <> nil then
+      FButtonManager.SetState('MEM', False);
     Exit;
   end;
 
@@ -1989,6 +2124,11 @@ begin
   SaveCurrentHamBandMemory;
   if FInRadioBand then
     SaveCurrentRadioBandMemory;
+end;
+
+procedure TfrmMain.SpectrumFavoriteRequested(Sender: TObject);
+begin
+  ShowFavorites;
 end;
 
 procedure TfrmMain.AbortSpectrumScan(const AReason: string);

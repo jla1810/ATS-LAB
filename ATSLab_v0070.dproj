@@ -120,6 +120,9 @@
         <DCCReference Include="AboutUnit.pas">
             <Form>AboutForm</Form>
         </DCCReference>
+        <DCCReference Include="FavoritesUnit.pas">
+            <Form>frmFavorites</Form>
+        </DCCReference>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

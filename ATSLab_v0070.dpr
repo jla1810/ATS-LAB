@@ -15,7 +15,8 @@ uses
   WifiCredentialsUnit in 'WifiCredentialsUnit.pas' {frmWifiCredentials},
   FrequencyInputUnit in 'FrequencyInputUnit.pas' {frmFrequencyInput},
   AboutUnit in 'AboutUnit.pas' {AboutForm},
-  SpectrumUnit in 'SpectrumUnit.pas' {frmSpectrum};
+  SpectrumUnit in 'SpectrumUnit.pas' {frmSpectrum},
+  FavoritesUnit in 'FavoritesUnit.pas' {frmFavorites};
 
 {$R *.res}
 
