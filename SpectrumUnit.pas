@@ -35,6 +35,9 @@ type
     btnExportCSV: TButton;
     btnExportPNG: TButton;
     btnFavorite: TButton;
+    lblStations: TLabel;
+    lstStations: TListBox;
+    btnListen: TButton;
     lblWaterfall: TLabel;
     pbWaterfall: TPaintBox;
     procedure FormCreate(Sender: TObject);
@@ -51,6 +54,9 @@ type
     procedure btnExportCSVClick(Sender: TObject);
     procedure btnExportPNGClick(Sender: TObject);
     procedure btnFavoriteClick(Sender: TObject);
+    procedure lstStationsClick(Sender: TObject);
+    procedure lstStationsDblClick(Sender: TObject);
+    procedure btnListenClick(Sender: TObject);
     procedure pbWaterfallPaint(Sender: TObject);
   private
     FRSSI: TArray<Integer>;
@@ -81,6 +87,9 @@ type
     procedure UpdateInfo;
     procedure UpdateProgress;
     procedure DetectPeaks;
+    procedure UpdateStationList;
+    procedure SelectStationFromList;
+    procedure TuneSelectedFrequency;
     procedure DrawSpectrum(const ACanvas: TCanvas; const ARect: TRect);
     procedure UpdateExportButtons;
     procedure AppendWaterfallLine;
@@ -147,6 +156,9 @@ begin
   btnResume.Enabled := False;
   btnStop.Enabled := False;
   btnFavorite.Enabled := False;
+  btnListen.Enabled := False;
+  lstStations.Clear;
+  lstStations.Enabled := False;
   UpdateExportButtons;
 end;
 
@@ -171,6 +183,9 @@ begin
   FReceivedCount := 0;
   FSelectedIndex := -1;
   btnFavorite.Enabled := False;
+  btnListen.Enabled := False;
+  lstStations.Clear;
+  lstStations.Enabled := False;
   FNoiseFloor := 0;
   SetLength(FPeakIndices, 0);
   UpdateExportButtons;
@@ -180,6 +195,7 @@ end;
 procedure TfrmSpectrum.AbortScan(const AReason: string);
 begin
   FReceiving := False;
+  lstStations.Enabled := FDataComplete and (Length(FPeakIndices) > 0);
   btnStart.Enabled := True;
   btnPause.Enabled := False;
   btnResume.Enabled := False;
@@ -461,10 +477,29 @@ end;
 
 procedure TfrmSpectrum.btnFavoriteClick(Sender: TObject);
 begin
-  if (FSelectedIndex < 0) or (FSelectedIndex >= FCount) then
+  if FReceiving or (FSelectedIndex < 0) or
+     (FSelectedIndex >= FCount) then
     Exit;
+  TuneSelectedFrequency;
   if Assigned(FOnFavoriteRequest) then
     FOnFavoriteRequest(Self);
+end;
+
+procedure TfrmSpectrum.lstStationsClick(Sender: TObject);
+begin
+  SelectStationFromList;
+end;
+
+procedure TfrmSpectrum.lstStationsDblClick(Sender: TObject);
+begin
+  SelectStationFromList;
+  TuneSelectedFrequency;
+end;
+
+procedure TfrmSpectrum.btnListenClick(Sender: TObject);
+begin
+  SelectStationFromList;
+  TuneSelectedFrequency;
 end;
 
 {
@@ -527,6 +562,8 @@ begin
     FDataComplete := False;
     FSelectedIndex := -1;
     btnFavorite.Enabled := False;
+    btnListen.Enabled := False;
+    lstStations.Enabled := False;
     UpdateExportButtons;
     FReceivedCount := 0;
     UpdateProgress;
@@ -581,6 +618,9 @@ begin
     end
     else
     begin
+      SetLength(FPeakIndices, 0);
+      lstStations.Clear;
+      lstStations.Enabled := False;
       lblRange.Caption := Format(
         'Trame de scan incomplète : %d / %d points reçus',
         [FReceivedCount, FCount]);
@@ -636,6 +676,79 @@ begin
     if PeakCount >= CMaxPeakMarkers then
       Break;
   end;
+  UpdateStationList;
+end;
+
+procedure TfrmSpectrum.UpdateStationList;
+var
+  I, PeakIndex: Integer;
+  FrequencyKHz: Double;
+begin
+  lstStations.Items.BeginUpdate;
+  try
+    lstStations.Clear;
+    for I := 0 to High(FPeakIndices) do
+    begin
+      PeakIndex := FPeakIndices[I];
+      if (PeakIndex < 0) or (PeakIndex >= FCount) then
+        Continue;
+      FrequencyKHz := FBaseKHz + (PeakIndex * FStepKHz);
+      lstStations.Items.Add(Format('%.3f MHz   R%02d  S%02d',
+        [FrequencyKHz / 1000, FRSSI[PeakIndex], FSNR[PeakIndex]]));
+    end;
+  finally
+    lstStations.Items.EndUpdate;
+  end;
+  lstStations.ItemIndex := -1;
+  lstStations.Enabled := lstStations.Count > 0;
+  btnListen.Enabled := False;
+end;
+
+procedure TfrmSpectrum.SelectStationFromList;
+var
+  PeakListIndex: Integer;
+  FrequencyKHz: Int64;
+begin
+  if FReceiving or not lstStations.Enabled then
+  begin
+    btnListen.Enabled := False;
+    Exit;
+  end;
+  PeakListIndex := lstStations.ItemIndex;
+  if (PeakListIndex < 0) or (PeakListIndex > High(FPeakIndices)) then
+  begin
+    btnListen.Enabled := False;
+    Exit;
+  end;
+
+  FSelectedIndex := FPeakIndices[PeakListIndex];
+  if (FSelectedIndex < 0) or (FSelectedIndex >= FCount) then
+  begin
+    FSelectedIndex := -1;
+    btnListen.Enabled := False;
+    btnFavorite.Enabled := False;
+    Exit;
+  end;
+
+  FrequencyKHz := Round(FBaseKHz + (FSelectedIndex * FStepKHz));
+  lblPeak.Caption := Format(
+    'SELECTION : %.3f MHz   RSSI %d   SNR %d',
+    [FrequencyKHz / 1000, FRSSI[FSelectedIndex], FSNR[FSelectedIndex]]);
+  btnListen.Enabled := True;
+  btnFavorite.Enabled := True;
+  pbSpectrum.Invalidate;
+end;
+
+procedure TfrmSpectrum.TuneSelectedFrequency;
+var
+  FrequencyKHz: Int64;
+begin
+  if FReceiving or (FSelectedIndex < 0) or
+     (FSelectedIndex >= FCount) or (FStepKHz <= 0) then
+    Exit;
+  FrequencyKHz := Round(FBaseKHz + (FSelectedIndex * FStepKHz));
+  if Assigned(FOnTuneRequest) then
+    FOnTuneRequest(Self, FrequencyKHz);
 end;
 
 procedure TfrmSpectrum.UpdateProgress;
@@ -732,14 +845,14 @@ begin
   end;
   FSelectedIndex := ClickedIndex;
   btnFavorite.Enabled := True;
+  btnListen.Enabled := True;
   FrequencyKHz := Round(FBaseKHz + (FSelectedIndex * FStepKHz));
   lblPeak.Caption := Format(
     'SELECTION : %.3f MHz   RSSI %d   SNR %d',
     [FrequencyKHz / 1000, FRSSI[FSelectedIndex], FSNR[FSelectedIndex]]);
   pbSpectrum.Invalidate;
 
-  if Assigned(FOnTuneRequest) then
-    FOnTuneRequest(Self, FrequencyKHz);
+  TuneSelectedFrequency;
 end;
 
 procedure TfrmSpectrum.pbSpectrumPaint(Sender: TObject);

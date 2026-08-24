@@ -3,7 +3,7 @@ object frmSpectrum: TfrmSpectrum
   Top = 0
   Caption = 'ATS LAB - SPECTRUM ANALYZER'
   ClientHeight = 680
-  ClientWidth = 920
+  ClientWidth = 1180
   Color = 1184018
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clSilver
@@ -82,12 +82,12 @@ object frmSpectrum: TfrmSpectrum
     OnPaint = pbWaterfallPaint
   end
   object btnClose: TButton
-    Left = 805
+    Left = 1065
     Top = 632
     Width = 95
     Height = 30
     Caption = 'FERMER'
-    TabOrder = 9
+    TabOrder = 12
     OnClick = btnCloseClick
   end
   object lblStartFrequency: TLabel
@@ -276,5 +276,52 @@ object frmSpectrum: TfrmSpectrum
     ParentFont = False
     TabOrder = 8
     OnClick = btnFavoriteClick
+  end
+  object lblStations: TLabel
+    Left = 928
+    Top = 104
+    Width = 224
+    Height = 17
+    Alignment = taCenter
+    AutoSize = False
+    Caption = 'STATIONS DETECTEES'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 7848653
+    Font.Height = -13
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object lstStations: TListBox
+    Left = 928
+    Top = 132
+    Width = 224
+    Height = 430
+    Color = 1118481
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = 11579568
+    Font.Height = -13
+    Font.Name = 'Consolas'
+    Font.Style = []
+    ItemHeight = 15
+    ParentFont = False
+    TabOrder = 10
+    OnClick = lstStationsClick
+    OnDblClick = lstStationsDblClick
+  end
+  object btnListen: TButton
+    Left = 928
+    Top = 573
+    Width = 224
+    Height = 40
+    Caption = 'ECOUTER'
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Georgia'
+    Font.Style = [fsBold]
+    ParentFont = False
+    TabOrder = 11
+    OnClick = btnListenClick
   end
 end
