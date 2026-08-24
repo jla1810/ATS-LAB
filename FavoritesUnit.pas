@@ -4,7 +4,8 @@ interface
 
 uses
   System.SysUtils, System.Classes, System.IniFiles, System.Math,
-  Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.Dialogs;
+  Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.Dialogs, Vcl.ExtCtrls,
+  Vcl.Imaging.pngimage;
 
 type
   TFavoriteData = record
@@ -18,6 +19,7 @@ type
   end;
 
   TfrmFavorites = class(TForm)
+    imgBackground: TImage;
     lblTitle: TLabel;
     lblHint: TLabel;
     lstFavorites: TListBox;

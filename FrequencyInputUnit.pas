@@ -4,10 +4,12 @@ interface
 
 uses
   System.SysUtils, System.Classes,
-  Vcl.Forms, Vcl.StdCtrls, Vcl.Dialogs, Vcl.Controls;
+  Vcl.Forms, Vcl.StdCtrls, Vcl.Dialogs, Vcl.Controls, Vcl.ExtCtrls,
+  Vcl.Imaging.pngimage;
 
 type
   TfrmFrequencyInput = class(TForm)
+    imgBackground: TImage;
     lblTitle: TLabel;
     lblHint: TLabel;
     edtFrequency: TEdit;

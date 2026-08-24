@@ -6193,13 +6193,12 @@ object AboutForm: TAboutForm
       7A1CFDAA9F7A4FE699DACBEE63701E68AC32A6748DEE513BB36E8C6C9C91614D
       9FAB1EBE0F9683E309839A39C89AC3336C5FB3CFD53D0AB6E91AEFA45B75E5E9
       9D7DDF349CFDA6B5530E4FF460FAF937DF7C7912254A942851A2448912254A94
-      2851A27C8FCBFF03A613E99A3D25BE170000000049454E44AE426082
-    }
+      2851A27C8FCBFF03A613E99A3D25BE170000000049454E44AE426082}
     Stretch = True
   end
   object lblTitle: TLabel
-    Left = 220
-    Top = 53
+    Left = 216
+    Top = 39
     Width = 520
     Height = 42
     Alignment = taCenter
@@ -6215,7 +6214,7 @@ object AboutForm: TAboutForm
   end
   object lblVersion: TLabel
     Left = 220
-    Top = 98
+    Top = 72
     Width = 520
     Height = 24
     Alignment = taCenter
@@ -6230,8 +6229,8 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblProductTitle: TLabel
-    Left = 250
-    Top = 174
+    Left = 302
+    Top = 172
     Width = 170
     Height = 20
     AutoSize = False
@@ -6245,8 +6244,8 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblProduct: TLabel
-    Left = 438
-    Top = 174
+    Left = 492
+    Top = 172
     Width = 340
     Height = 22
     AutoSize = False
@@ -6260,7 +6259,7 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblConnectionTitle: TLabel
-    Left = 250
+    Left = 302
     Top = 218
     Width = 170
     Height = 20
@@ -6275,7 +6274,7 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblConnection: TLabel
-    Left = 438
+    Left = 492
     Top = 218
     Width = 340
     Height = 22
@@ -6290,7 +6289,7 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblDetailTitle: TLabel
-    Left = 250
+    Left = 308
     Top = 262
     Width = 170
     Height = 20
@@ -6305,7 +6304,7 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblDetail: TLabel
-    Left = 438
+    Left = 492
     Top = 262
     Width = 340
     Height = 22
@@ -6320,7 +6319,7 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblFirmwareTitle: TLabel
-    Left = 250
+    Left = 308
     Top = 306
     Width = 170
     Height = 20
@@ -6335,7 +6334,7 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblFirmware: TLabel
-    Left = 438
+    Left = 492
     Top = 306
     Width = 390
     Height = 45
@@ -6351,8 +6350,8 @@ object AboutForm: TAboutForm
     WordWrap = True
   end
   object lblAuthorTitle: TLabel
-    Left = 250
-    Top = 366
+    Left = 302
+    Top = 364
     Width = 170
     Height = 20
     AutoSize = False
@@ -6366,8 +6365,8 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblAuthor: TLabel
-    Left = 438
-    Top = 366
+    Left = 492
+    Top = 362
     Width = 340
     Height = 22
     AutoSize = False
@@ -6381,13 +6380,16 @@ object AboutForm: TAboutForm
     Transparent = True
   end
   object lblDisclaimer: TLabel
-    Left = 200
-    Top = 424
+    Left = 330
+    Top = 454
     Width = 560
     Height = 58
     Alignment = taCenter
     AutoSize = False
-    Caption = 'ATS LAB - Interface experimentale de pilotage ATS-25 / SI4735. Utilisation et modifications du firmware sous la responsabilite de l utilisateur.'
+    Caption =
+      'ATS LAB - Interface experimentale de pilotage ATS-25 / SI4735. U' +
+      'tilisation et modifications du firmware sous la responsabilite d' +
+      'e l utilisateur.'
     Font.Charset = DEFAULT_CHARSET
     Font.Color = clSilver
     Font.Height = -13
@@ -6399,7 +6401,7 @@ object AboutForm: TAboutForm
   end
   object btnGitHub: TButton
     Left = 238
-    Top = 535
+    Top = 553
     Width = 210
     Height = 42
     Caption = 'GITHUB / SOURCE'
@@ -6413,8 +6415,8 @@ object AboutForm: TAboutForm
     OnClick = btnGitHubClick
   end
   object btnClose: TButton
-    Left = 512
-    Top = 535
+    Left = 604
+    Top = 553
     Width = 210
     Height = 42
     Caption = 'FERMER'
@@ -6424,8 +6426,8 @@ object AboutForm: TAboutForm
     Font.Height = -14
     Font.Name = 'Georgia'
     Font.Style = [fsBold]
-    ParentFont = False
     ModalResult = 8
+    ParentFont = False
     TabOrder = 1
     OnClick = btnCloseClick
   end
