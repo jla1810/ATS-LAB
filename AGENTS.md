@@ -101,12 +101,30 @@ En cas de recouvrement de bandes dans le firmware :
 - Toute interaction avec la courbe doit préserver l'état de la radio et la connexion.
 
 ## Méthode de travail recommandée
-Pour une demande de correction :
-1. Analyser seulement.
-2. Présenter les problèmes trouvés.
-3. Proposer les changements.
-4. Modifier uniquement après accord explicite si la demande initiale était une revue.
-5. Après modification, fournir un diff ou un résumé exact.
+### Autorisation de modification
+- Une demande explicite d'action telle que « corrige », « ajoute », « modifie »,
+  « optimise », « fais », « go » ou équivalent autorise directement les
+  modifications nécessaires dans le périmètre demandé, sans demander une
+  seconde confirmation.
+- Avant d'écrire, effectuer la revue obligatoire décrite plus haut, puis
+  modifier, vérifier et rendre compte du résultat dans le même travail.
+- Une demande d'audit, de revue, d'analyse, de diagnostic ou d'explication
+  seule reste strictement en lecture seule. Ne rien modifier tant que
+  l'utilisateur n'a pas ensuite demandé explicitement une correction.
+- Une autorisation de modifier le code n'autorise pas automatiquement un
+  commit, un push, une publication, un tag, un téléversement sur un appareil
+  ou une réécriture de l'historique Git. Ces actions exigent toujours une
+  demande explicite.
+- Si une action est destructive, dépasse clairement le périmètre demandé ou
+  impose un choix fonctionnel important impossible à déduire, demander une
+  confirmation ciblée.
+
+Pour une demande de correction ou d'ajout explicitement autorisée :
+1. Analyser les unités, appels, dépendances et risques concernés.
+2. Effectuer directement les modifications nécessaires.
+3. Vérifier les références, les régressions et compiler/tester lorsque les
+   outils correspondants sont réellement disponibles.
+4. Après modification, fournir un diff ou un résumé exact.
 
 Pour une revue de code :
 - ne modifier aucun fichier ;
