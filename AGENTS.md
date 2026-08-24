@@ -4,7 +4,9 @@
 ATS LAB est un logiciel Delphi VCL Win32 de pilotage d'un récepteur ATS-25X2 / SI4735, accompagné d'un firmware ESP32.
 
 ## Environnement
-- Delphi 11 Alexandria / dcc32 Win32
+- Delphi 12 Community Edition / VCL Win32
+- La Community Edition interdit la compilation par DCC32 en ligne de commande :
+  ne jamais tenter d'exécuter dcc32. Compiler uniquement depuis l'IDE Delphi.
 - VCL
 - Windows
 - Firmware ESP32 sous Arduino IDE
@@ -44,7 +46,11 @@ Toujours :
 - signaler les risques éventuels ;
 - rechercher les références cassées ;
 - vérifier qu'aucune fonctionnalité existante n'a été supprimée ;
-- ne pas déclarer "compilé" si dcc32/Arduino IDE n'a pas réellement été exécuté.
+- ne pas tenter d'exécuter dcc32 dans cet environnement ;
+- ne déclarer le projet Delphi "compilé" que si la compilation a réellement
+  été lancée et réussie depuis l'IDE Delphi ;
+- ne déclarer le firmware "compilé" que si Arduino IDE ou Arduino CLI a
+  réellement terminé sans erreur.
 
 ## ATS LAB — règles UI
 - Façade principale : conserver le style steampunk existant.
