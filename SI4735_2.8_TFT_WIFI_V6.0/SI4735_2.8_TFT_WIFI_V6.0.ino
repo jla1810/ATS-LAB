@@ -607,7 +607,7 @@ Band band[] = {
   {  "13M", SW_BAND_TYPE,  AM, 21500, 24000, 21500,  5, 0, 0}, //       13M   24
   {  "12M", SW_BAND_TYPE, USB, 24000, 25500, 24940,  1, 0, 0}, // Ham   12M   25
   {  "11M", SW_BAND_TYPE,  AM, 25500, 26100, 25800,  5, 0, 0}, //       11M   26
-  {   "CB", SW_BAND_TYPE,  AM, 26100, 28000, 27200,  1, 0, 0}, // CB band     27
+  {   "CB", SW_BAND_TYPE,  AM, 26515, 27855, 27185,  1, 0, 0}, // CB INF/CEPT/SUP 27
   {  "10M", SW_BAND_TYPE, USB, 28000, 30000, 28500,  1, 0, 0}, // Ham   10M   28
   {   "SW", SW_BAND_TYPE,  AM,   100, 30000, 15500,  5, 0, 0} // Whole SW    29
 };

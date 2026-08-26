@@ -1,4 +1,4 @@
-﻿unit MainUnit;
+unit MainUnit;
 
 interface
 
@@ -126,12 +126,15 @@ type
     hsQuitter: TImage;
     txtBfo: TEdit;
     lblConnectionInfo: TLabel;
+    HsCB: TImage;
+    LblCanal: TLabel;
 
     procedure FormCreate(Sender: TObject);
     procedure ion_offClick(Sender: TObject);
     procedure hsPowerClick(Sender: TObject);
     procedure hsQuitterClick(Sender: TObject);
     procedure hsRadioFMClick(Sender: TObject);
+    procedure HsCBClick(Sender: TObject);
     procedure NixieClick(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -221,6 +224,9 @@ type
     procedure LoadNixieAssets;
     procedure FreeNixieAssets;
     procedure ChangeFrequency(const Delta: Int64);
+    function CBFrequencyForPosition(const APosition: Integer): Int64;
+    function CBPositionForFrequency(const AFrequencyHz: Int64): Integer;
+    function IsCBActive: Boolean;
     procedure UpdateDisplay;
     procedure UpdateNixieDisplay;
     procedure UpdateNixieDecimal(const ADigitsBeforePoint: Integer);
@@ -309,10 +315,10 @@ const
   CMaxFrequencyHz = Int64(200000000);
   CHamMin: array[THamBandIndex] of Int64 =
     (1800000, 3500000, 7000000, 14000000, 18068000,
-     21000000, 24890000, 28000000, 26965000);
+     21000000, 24890000, 28000000, 26515000);
   CHamMax: array[THamBandIndex] of Int64 =
     (2000000, 3800000, 7200000, 14350000, 18168000,
-     21450000, 24990000, 29700000, 27405000);
+     21450000, 24990000, 29700000, 27855000);
   CRadioMin: array[TRadioBandIndex] of Int64 =
     (148500, 531000, 2300000, 87500000);
   CRadioMax: array[TRadioBandIndex] of Int64 =
@@ -320,6 +326,19 @@ const
   CScanBeginTimeoutMs = UInt64(5000);
   CScanInactivityTimeoutMs = UInt64(30000);
   CScanTotalTimeoutMs = UInt64(120000);
+  CCBChannelsPerBand = 40;
+  CCBTotalPositions = 120;
+  CCBBandOffsetHz = Int64(450000);
+  CCBChannelFrequenciesHz: array[1..CCBChannelsPerBand] of Int64 = (
+    26965000, 26975000, 26985000, 27005000, 27015000,
+    27025000, 27035000, 27055000, 27065000, 27075000,
+    27085000, 27105000, 27115000, 27125000, 27135000,
+    27155000, 27165000, 27175000, 27185000, 27205000,
+    27215000, 27225000, 27255000, 27235000, 27245000,
+    27265000, 27275000, 27285000, 27295000, 27305000,
+    27315000, 27325000, 27335000, 27345000, 27355000,
+    27365000, 27375000, 27385000, 27395000, 27405000
+  );
 
 procedure TfrmMain.RequestReceiverId;
 begin
@@ -1167,11 +1186,11 @@ const
     21074000,  { 15 m  }
     24940000,  { 12 m  }
     28500000,  { 10 m  }
-    27200000   { CB    }
+    27185000   { CB    }
   );
   CDefaultMode: array[THamBandIndex] of string = (
     'LSB', 'LSB', 'LSB', 'USB', 'USB',
-    'USB', 'USB', 'USB', 'USB'
+    'USB', 'USB', 'USB', 'AM'
   );
   CBandName: array[THamBandIndex] of string = (
     '160', '80', '40', '20', '17',
@@ -1736,7 +1755,7 @@ procedure TfrmMain.SelectBandForDirectFrequency(const AFrequencyHz: Int64);
 const
   CDefaultHamMode: array[THamBandIndex] of string = (
     'LSB', 'LSB', 'LSB', 'USB', 'USB',
-    'USB', 'USB', 'USB', 'USB'
+    'USB', 'USB', 'USB', 'AM'
   );
   CHamBandName: array[THamBandIndex] of string = (
     '160', '80', '40', '20', '17', '15', '12', '10', 'CB'
@@ -1843,13 +1862,57 @@ begin
   else if B='FM' then begin FCurrentRadioBand:=rbFM; FHasCurrentRadioBand:=True; FHasCurrentHamBand:=False; FInRadioBand:=True; UpdateRadioButtons; end;
 end;
 
+function TfrmMain.CBFrequencyForPosition(
+  const APosition: Integer): Int64;
+var
+  Position, BandOffset, Channel: Integer;
+begin
+  Position := EnsureRange(APosition, 1, CCBTotalPositions);
+  BandOffset := ((Position - 1) div CCBChannelsPerBand) - 1;
+  Channel := ((Position - 1) mod CCBChannelsPerBand) + 1;
+  Result := CCBChannelFrequenciesHz[Channel] +
+    (Int64(BandOffset) * CCBBandOffsetHz);
+end;
+
+function TfrmMain.CBPositionForFrequency(
+  const AFrequencyHz: Int64): Integer;
+var
+  Position: Integer;
+  BestDifference, Difference: Int64;
+begin
+  Result := 1;
+  BestDifference := Abs(AFrequencyHz - CBFrequencyForPosition(Result));
+  for Position := 2 to CCBTotalPositions do
+  begin
+    Difference := Abs(AFrequencyHz - CBFrequencyForPosition(Position));
+    if Difference < BestDifference then
+    begin
+      BestDifference := Difference;
+      Result := Position;
+    end;
+  end;
+end;
+
+function TfrmMain.IsCBActive: Boolean;
+begin
+  Result := FHasCurrentHamBand and (FCurrentHamBand = hbCB);
+end;
 procedure TfrmMain.ChangeFrequency(const Delta: Int64);
 var
   MinHz, MaxHz: Int64;
+  CBPosition: Integer;
 begin
   UpdateKnobFrame(Sign(Delta));
   GetActiveBandLimits(MinHz, MaxHz);
-  FFrequencyHz := EnsureRange(FFrequencyHz + Delta, MinHz, MaxHz);
+  if IsCBActive and (Delta <> 0) then
+  begin
+    CBPosition := CBPositionForFrequency(FFrequencyHz);
+    CBPosition := EnsureRange(CBPosition + Sign(Delta),
+      1, CCBTotalPositions);
+    FFrequencyHz := CBFrequencyForPosition(CBPosition);
+  end
+  else
+    FFrequencyHz := EnsureRange(FFrequencyHz + Delta, MinHz, MaxHz);
 
   EnforceFMBandMode;
   UpdateModeButtons;
@@ -1947,19 +2010,45 @@ end;
 
 
 procedure TfrmMain.UpdateDisplay;
+var
+  CBBand, CBChannel, CBPosition: Integer;
+  CBBandName: string;
 begin
   UpdateNixieDisplay;
 
-
+  if Assigned(LblCanal) then
+    LblCanal.Visible := FPowerOn and IsCBActive;
+  if IsCBActive then
+  begin
+    CBPosition := CBPositionForFrequency(FFrequencyHz);
+    CBBand := (CBPosition - 1) div CCBChannelsPerBand;
+    CBChannel := ((CBPosition - 1) mod CCBChannelsPerBand) + 1;
+    case CBBand of
+      0: CBBandName := 'INF';
+      2: CBBandName := 'SUP';
+    else
+      CBBandName := 'CB';
+    end;
+    if Assigned(LblCanal) then
+      LblCanal.Caption := Format('%s %.2d', [CBBandName, CBChannel]);
     lblStatusDynamic.Caption := Format(
-    'ATS LAB v1.1.1   CONNECTED   %s   %s kHz',
-    [FMode, FormatFloat('#,##0', FFrequencyHz div 1000)]
-  );
+      'ATS LAB v1.1.1   CONNECTED   %s   %s kHz',
+      [FMode, FormatFloat('#,##0', FFrequencyHz div 1000)]
+    );
+  end
+  else
+  begin
+    if Assigned(LblCanal) then
+      LblCanal.Caption := '';
+    lblStatusDynamic.Caption := Format(
+      'ATS LAB v1.1.1   CONNECTED   %s   %s kHz',
+      [FMode, FormatFloat('#,##0', FFrequencyHz div 1000)]
+    );
+  end;
 
   if FScanEnabled then
     lblStatusDynamic.Caption := lblStatusDynamic.Caption + '   SCAN';
 end;
-
 function TfrmMain.IsFMBand: Boolean;
 begin
   { Bande FM radiodiffusion : 87,5 à 108 MHz. }
@@ -2459,6 +2548,10 @@ begin
   hsHam12.Visible := FPowerOn;
   hsHam10.Visible := FPowerOn;
   hsHamCB.Visible := FPowerOn;
+  if Assigned(HsCB) then
+    HsCB.Visible := FPowerOn;
+  if Assigned(LblCanal) then
+    LblCanal.Visible := FPowerOn and IsCBActive;
 
   if Assigned(tmrVisuals) then
     tmrVisuals.Enabled := FPowerOn;
@@ -3183,6 +3276,14 @@ begin
 end;
 
 
+
+procedure TfrmMain.HsCBClick(Sender: TObject);
+begin
+  if IsFrontPanelLocked then
+    Exit;
+
+  SelectHamBand(hbCB);
+end;
 
 procedure TfrmMain.hsRadioFMClick(Sender: TObject);
 begin
