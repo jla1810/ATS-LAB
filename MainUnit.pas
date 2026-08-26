@@ -1,4 +1,4 @@
-unit MainUnit;
+﻿unit MainUnit;
 
 interface
 
@@ -128,6 +128,12 @@ type
     lblConnectionInfo: TLabel;
     HsCB: TImage;
     LblCanal: TLabel;
+    LblVol: TLabel;
+    LblSquelch: TLabel;
+    LblBFOValue: TLabel;
+    LblRFGain: TLabel;
+    LblAFGain: TLabel;
+    LblClarifier: TLabel;
 
     procedure FormCreate(Sender: TObject);
     procedure ion_offClick(Sender: TObject);
@@ -1703,6 +1709,30 @@ begin
     'VOL=%d  SQL=%d  BFO=%+d Hz  RF=%d  AF=%d  CLAR=%d Hz',
     [FVolume, FSquelch, FBFO, FRFGain, FAFGain, FClarifier]
   );
+
+  if Assigned(LblVol) then
+    LblVol.Caption := IntToStr(FVolume);
+  if Assigned(LblSquelch) then
+    LblSquelch.Caption := IntToStr(FSquelch);
+  if Assigned(LblBFOValue) then
+  begin
+    if FBFO > 0 then
+      LblBFOValue.Caption := '+' + IntToStr(FBFO)
+    else
+      LblBFOValue.Caption := IntToStr(FBFO);
+  end;
+  if Assigned(LblRFGain) then
+    LblRFGain.Caption := IntToStr(FRFGain);
+  if Assigned(LblAFGain) then
+    LblAFGain.Caption := IntToStr(FAFGain);
+  if Assigned(LblClarifier) then
+  begin
+    if FClarifier > 0 then
+      LblClarifier.Caption := '+' + IntToStr(FClarifier)
+    else
+      LblClarifier.Caption := IntToStr(FClarifier);
+  end;
+
   UpdateBFOText;
 end;
 
