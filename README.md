@@ -1,69 +1,111 @@
 # ATS LAB
 
-ATS LAB est une application Delphi VCL Win32 destinée au pilotage d'un
-récepteur ATS-25X2 / SI4735.
+ATS LAB est une application Windows au style steampunk permettant de piloter un récepteur ATS-25X2 / SI4735 depuis un PC. Le dépôt contient l’application Delphi VCL Win32 et le firmware ESP32 associé.
 
-## Version stable
+## État du projet
 
-La base stable actuelle est **ATS LAB v0.09.1d NIXIE DOT**.
+- branche de développement : `develop` ;
+- dernière base publiée : tag `v1.1.2` ;
+- version actuellement affichée par l’application : `1.1.1` ;
+- firmware : ATS LAB V6.0 pour ESP32 classique.
 
-Tags disponibles :
-
-- `v0.09.1d` : première base stable enregistrée dans Git ;
-- `v0.09.1d-optimized` : base stable avec optimisations validées ;
-- `v0.09.1d-scan-rds-fix` : correction validée du scan FM et du RDS.
+La branche `develop` contient également les évolutions postérieures au tag `v1.1.2`, notamment la bande CB et l’affichage numérique des réglages rotatifs.
 
 ## Fonctions principales
 
 - connexion USB par port série ;
-- Bluetooth Classic SPP par port COM Windows ;
+- connexion Bluetooth Classic SPP par port COM Windows ;
 - connexion Wi-Fi/TCP ;
-- synchronisation de la fréquence, du mode et des réglages ATS ;
-- bandes HAM et bandes radio LW, MW, SW et FM ;
-- affichage de fréquence sur huit Nixies avec point décimal indépendant ;
-- Spectrum Analyzer utilisant les commandes de scan ATS ;
-- affichage RSSI/S-mètre, RDS et informations du récepteur.
+- protocole ATS commun aux trois transports ;
+- synchronisation de la fréquence, du mode et des réglages du récepteur ;
+- modes AM, FM, USB, LSB, CW et CW-R selon la bande ;
+- bandes radio LW, MW, SW, AIR, FM et VHF ;
+- bandes HAM 160 m, 80 m, 40 m, 20 m, 17 m, 15 m, 12 m et 10 m ;
+- bande CB sur 120 positions : 40 canaux INF, 40 CEPT et 40 SUP ;
+- affichage Nixie de la fréquence ;
+- affichage direct des valeurs Volume, Squelch, BFO, RF Gain, AF Gain et Clarifier ;
+- S-mètre, RDS, mémoires, favoris et saisie directe d’une fréquence ;
+- Spectrum Analyzer avec scan ATS natif, détection des stations et export CSV/PNG ;
+- configuration Wi-Fi, identification du firmware et synchronisation NTP.
 
-Le Spectrum Analyzer et le RDS sont réservés à la bande FM broadcast de
-87,5 à 108 MHz. Le RDS est temporairement désactivé pendant un scan puis
-réactivé après `SCANEND`.
+## Matériel et environnement
 
-## Environnement
-
-- Delphi 11 Alexandria ;
-- cible VCL Win32 (`dcc32`) ;
 - Windows ;
-- récepteur ATS-25X2 / SI4735 ;
-- ESP32 classique pour les fonctions Wi-Fi et Bluetooth Classic SPP.
+- Delphi 12 Community Edition ;
+- VCL Win32 ;
+- récepteur ATS-25X2 basé sur le SI4735 ;
+- ESP32 classique avec Wi-Fi et Bluetooth Classic SPP ;
+- Arduino IDE pour le firmware.
 
-## Compilation
+## Compilation de l’application
 
-Ouvrir `ATSLab_v0070.dproj` dans Delphi 11, sélectionner la cible Win32 puis
-compiler depuis l'IDE.
+1. Ouvrir `ATSLab_v0070.dproj` dans Delphi 12 Community Edition.
+2. Sélectionner la plateforme **Win32**.
+3. Choisir la configuration Debug ou Release.
+4. Compiler depuis l’IDE Delphi.
 
-Les fichiers générés (`.dcu`, `.exe`, fichiers locaux de l'IDE et paramètres
-INI) ne sont pas suivis par Git.
+La Community Edition ne permet pas d’utiliser `dcc32` directement en ligne de commande. Les ressources du dossier `Data` doivent conserver leur arborescence et rester accessibles à côté de l’exécutable.
+
+## Compilation du firmware
+
+Le firmware suivi par Git se trouve dans :
+
+`SI4735_2.8_TFT_WIFI_V6.0/SI4735_2.8_TFT_WIFI_V6.0.ino`
+
+L’ESP32 classique doit disposer de Wi-Fi et de Bluetooth Classic. Bluetooth SPP augmente sensiblement la taille du programme ; sélectionner une partition de type **Huge APP (~3 MB)** si nécessaire.
+
+Compiler et téléverser le firmware depuis Arduino IDE. La configuration exacte de la carte, de l’écran TFT et du SI4735 doit correspondre au récepteur utilisé.
 
 ## Connexions
 
-### USB et Bluetooth
+### USB
 
-USB et Bluetooth Classic SPP utilisent le même transport série et le même
-protocole ATS. Le port SPP doit être associé à un port COM Windows.
+Sélectionner le port COM du récepteur. L’application utilise le transport série existant et le protocole ATS.
+
+### Bluetooth
+
+Associer d’abord l’ESP32 à Windows. Le service Bluetooth Classic SPP apparaît ensuite comme un port COM et réutilise exactement le même protocole que l’USB.
 
 ### Wi-Fi
 
-La connexion Wi-Fi utilise TCP vers l'adresse et le port configurés pour le
-serveur ATS.
+Configurer les identifiants Wi-Fi depuis l’application, puis utiliser la connexion TCP vers l’adresse du récepteur. Le firmware fournit les commandes d’identification, d’état et de contrôle utilisées par ATS LAB.
 
-## Branches
+## Spectrum Analyzer et RDS
 
-- `master` : version stable validée ;
-- `develop` : développement et validations avant intégration dans `master`.
+Le Spectrum Analyzer exploite les données du mécanisme de scan ATS. Il peut détecter les pics, lister les stations, accorder la fréquence sélectionnée et exporter les résultats.
 
-## Ressources
+Le RDS est utilisé en FM broadcast. Pendant un scan, son état est géré afin de ne pas perturber la réception des données de spectre, puis restauré à la fin du scan.
 
-Les images nécessaires à l'interface sont conservées dans `Data`. Leur
-arborescence doit rester placée à côté de l'exécutable lors de l'utilisation
-du programme.
+## Bande CB
 
+La bande CB démarre sur 27,185 MHz et propose trois séries de 40 canaux :
+
+- `INF` : canaux inférieurs ;
+- `CEPT` : canaux standards ;
+- `SUP` : canaux supérieurs.
+
+La façade affiche la série et le numéro du canal sélectionné.
+
+## Organisation du dépôt
+
+- `MainUnit.*` : façade principale et logique de pilotage ;
+- `uATSConnection.pas` : transports série et TCP ;
+- `uATSProtocol.pas` : commandes et réponses ATS ;
+- `SpectrumUnit.*` : analyseur de spectre ;
+- `SerialConnectUnit.*` : sélection et configuration des connexions ;
+- `Data/` : décors, boutons, Nixies, lampes et autres ressources graphiques ;
+- `SI4735_2.8_TFT_WIFI_V6.0/` : firmware ESP32 suivi par Git.
+
+## Branches et versions
+
+- `master` : versions stables validées ;
+- `develop` : développements et validations en cours ;
+- tags `v1.x` : jalons de publication récents ;
+- tags `v0.09.1d-*` : historique des versions Spectrum et RDS.
+
+## Précautions
+
+- conserver les trois transports USB, Bluetooth SPP et Wi-Fi TCP ;
+- ne pas modifier l’arborescence de `Data` ;
+- éviter les fréquences situées exactement sur une frontière de bande ;
+- préserver le protocole entre l’application et le firmware lors de toute évolution.
