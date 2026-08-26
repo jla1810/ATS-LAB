@@ -106,6 +106,7 @@
         <DCCReference Include="SerialConnectUnit.pas">
             <Form>frmSerialConnect</Form>
         </DCCReference>
+        <DCCReference Include="ConnectionDiagnosticUnit.pas"/>
         <DCCReference Include="uATSConnection.pas"/>
         <DCCReference Include="uATSProtocol.pas"/>
         <DCCReference Include="MainUnit.pas">

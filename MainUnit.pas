@@ -13,7 +13,7 @@ uses
   uSteamKnob,
   uSteamButton,
   uSteamButtonManager,
-  SerialMonitorUnit,
+  SerialMonitorUnit, ConnectionDiagnosticUnit,
   SerialConnectUnit, FrequencyInputUnit,
   WifiCredentialsUnit, AboutUnit, SpectrumUnit, FavoritesUnit,
   uATSConnection,
@@ -200,6 +200,18 @@ type
     FClarifier: Integer;
     FPowerOn: Boolean;
     FSerialMonitor: TfrmSerialMonitor;
+    FDiagnosticTxCount: Integer;
+    FDiagnosticRxCount: Integer;
+    FDiagnosticPingCount: Integer;
+    FDiagnosticPongCount: Integer;
+    FDiagnosticLastPingTick: UInt64;
+    FDiagnosticLastLatencyMs: Integer;
+    FDiagnosticConnectedTick: UInt64;
+    FDiagnosticLastCommand: string;
+    FDiagnosticLastResponse: string;
+    FDiagnosticLastCommandAt: TDateTime;
+    FDiagnosticLastResponseAt: TDateTime;
+    FDiagnosticSerialTransport: string;
     FFrequencyHz: Int64;
     FStepHz: Integer;
     FMode: string;
@@ -289,6 +301,7 @@ type
       AState: Boolean);
     procedure UpdateConnectionInfo;
     procedure ShowAbout;
+    procedure ShowConnectionDiagnostic;
     procedure ShowFavorites;
     procedure RecallFavorite(const AFavorite: TFavoriteData);
     function CurrentFavoriteBand: string;
@@ -378,6 +391,95 @@ begin
     else if K = 'HW' then FReceiverHardware := V
     else if K = 'CHIP' then FReceiverChip := V;
   end;
+end;
+
+procedure TfrmMain.ShowConnectionDiagnostic;
+var
+  Data: TConnectionDiagnosticData;
+  ElapsedSeconds: UInt64;
+
+  function TextOrDash(const AText: string): string;
+  begin
+    if Trim(AText) <> '' then
+      Result := AText
+    else
+      Result := '-';
+  end;
+
+  function TimeOrDash(const AValue: TDateTime): string;
+  begin
+    if AValue > 0 then
+      Result := FormatDateTime('hh:nn:ss.zzz', AValue)
+    else
+      Result := '-';
+  end;
+
+begin
+  Data.ConnectionState := 'NON CONNECTÉ';
+  Data.Transport := '-';
+  Data.Endpoint := '-';
+  Data.ConnectedDuration := '-';
+
+  if FATSConnection <> nil then
+  begin
+    case FATSConnection.State of
+      acsConnecting: Data.ConnectionState := 'CONNEXION EN COURS';
+      acsConnected: Data.ConnectionState := 'CONNECTÉ';
+      acsError: Data.ConnectionState := 'ERREUR';
+    else
+      Data.ConnectionState := 'NON CONNECTÉ';
+    end;
+
+    case FATSConnection.Transport of
+      attSerial:
+        begin
+          Data.Transport := FDiagnosticSerialTransport;
+          Data.Endpoint := Format('%s @ %d bauds',
+            [FATSConnection.PortName, FATSConnection.BaudRate]);
+        end;
+      attWiFi:
+        begin
+          Data.Transport := 'WI-FI TCP';
+          Data.Endpoint := Format('%s:%d',
+            [FATSConnection.Host, FATSConnection.TcpPort]);
+        end;
+    end;
+
+    Data.LastError := TextOrDash(FATSConnection.LastError);
+  end
+  else
+    Data.LastError := '-';
+
+  if (FDiagnosticConnectedTick > 0) and
+     (FATSConnection <> nil) and FATSConnection.IsAlive then
+  begin
+    ElapsedSeconds := (GetTickCount64 - FDiagnosticConnectedTick) div 1000;
+    Data.ConnectedDuration := Format('%d h %2.2d min %2.2d s',
+      [ElapsedSeconds div 3600, (ElapsedSeconds div 60) mod 60,
+       ElapsedSeconds mod 60]);
+  end;
+
+  Data.ReceiverModel := TextOrDash(FReceiverModel);
+  Data.Firmware := TextOrDash(FReceiverFirmware);
+  Data.Hardware := TextOrDash(FReceiverHardware);
+  Data.Chip := TextOrDash(FReceiverChip);
+  Data.Frequency := FormatFloat('0.000', FFrequencyHz / 1000000) + ' MHz';
+  Data.Mode := TextOrDash(FMode);
+  Data.CommandsSent := FDiagnosticTxCount;
+  Data.ResponsesReceived := FDiagnosticRxCount;
+  Data.PingsSent := FDiagnosticPingCount;
+  Data.PongsReceived := FDiagnosticPongCount;
+  Data.MissingPongs := Max(0, FDiagnosticPingCount - FDiagnosticPongCount);
+  if FDiagnosticLastLatencyMs >= 0 then
+    Data.LastLatency := IntToStr(FDiagnosticLastLatencyMs) + ' ms'
+  else
+    Data.LastLatency := '-';
+  Data.LastCommand := TextOrDash(FDiagnosticLastCommand);
+  Data.LastCommandTime := TimeOrDash(FDiagnosticLastCommandAt);
+  Data.LastResponse := TextOrDash(FDiagnosticLastResponse);
+  Data.LastResponseTime := TimeOrDash(FDiagnosticLastResponseAt);
+
+  TfrmConnectionDiagnostic.Execute(Self, Data);
 end;
 
 procedure TfrmMain.ShowAbout;
@@ -561,6 +663,18 @@ end;
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
   FConnectionBusy := False;
+  FDiagnosticTxCount := 0;
+  FDiagnosticRxCount := 0;
+  FDiagnosticPingCount := 0;
+  FDiagnosticPongCount := 0;
+  FDiagnosticLastPingTick := 0;
+  FDiagnosticLastLatencyMs := -1;
+  FDiagnosticConnectedTick := 0;
+  FDiagnosticLastCommand := '-';
+  FDiagnosticLastResponse := '-';
+  FDiagnosticLastCommandAt := 0;
+  FDiagnosticLastResponseAt := 0;
+  FDiagnosticSerialTransport := 'USB / BLUETOOTH';
   FReceiverModel := '';
   FReceiverFirmware := '';
   FReceiverHardware := '';
@@ -2504,6 +2618,13 @@ begin
     Exit;
   end;
 
+  if Key = VK_F2 then
+  begin
+    ShowConnectionDiagnostic;
+    Key := 0;
+    Exit;
+  end;
+
   if IsFrontPanelLocked then
     Exit;
 
@@ -2859,7 +2980,54 @@ end;
 
 procedure TfrmMain.ATSConnectionLog(Sender: TObject;
   const AText: string);
+var
+  Payload: string;
 begin
+  if StartsText('CONNECTE ', AText) then
+  begin
+    FDiagnosticTxCount := 0;
+    FDiagnosticRxCount := 0;
+    FDiagnosticPingCount := 0;
+    FDiagnosticPongCount := 0;
+    FDiagnosticLastPingTick := 0;
+    FDiagnosticLastLatencyMs := -1;
+    FDiagnosticConnectedTick := GetTickCount64;
+    FDiagnosticLastCommand := '-';
+    FDiagnosticLastResponse := '-';
+    FDiagnosticLastCommandAt := 0;
+    FDiagnosticLastResponseAt := 0;
+  end;
+
+  if StartsText('TX > ', AText) then
+  begin
+    Payload := Trim(Copy(AText, 6, MaxInt));
+    Inc(FDiagnosticTxCount);
+    FDiagnosticLastCommand := Payload;
+    FDiagnosticLastCommandAt := Now;
+    if SameText(Payload, 'PING') then
+    begin
+      Inc(FDiagnosticPingCount);
+      FDiagnosticLastPingTick := GetTickCount64;
+    end;
+  end
+  else if StartsText('RX < ', AText) then
+  begin
+    Payload := Trim(Copy(AText, 6, MaxInt));
+    Inc(FDiagnosticRxCount);
+    FDiagnosticLastResponse := Payload;
+    FDiagnosticLastResponseAt := Now;
+    if TATSProtocol.IsPong(Payload) then
+    begin
+      Inc(FDiagnosticPongCount);
+      if FDiagnosticLastPingTick > 0 then
+      begin
+        FDiagnosticLastLatencyMs := Integer(
+          GetTickCount64 - FDiagnosticLastPingTick);
+        FDiagnosticLastPingTick := 0;
+      end;
+    end;
+  end;
+
   if Assigned(FSerialMonitor) then
     FSerialMonitor.AddLine(AText);
 end;
@@ -3428,6 +3596,11 @@ begin
           ========================================================= }
         if ConnForm.ConnectionChoice in [accSerial, accBluetooth] then
         begin
+          if ConnForm.ConnectionChoice = accBluetooth then
+            FDiagnosticSerialTransport := 'BLUETOOTH SPP'
+          else
+            FDiagnosticSerialTransport := 'USB / SÉRIE';
+
           if not FATSConnection.Connect(
             ConnForm.SelectedPort,
             ConnForm.SelectedBaud

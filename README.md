@@ -26,7 +26,8 @@ La branche `develop` contient également les évolutions postérieures au tag `v
 - affichage direct des valeurs Volume, Squelch, BFO, RF Gain, AF Gain et Clarifier ;
 - S-mètre, RDS, mémoires, favoris et saisie directe d’une fréquence ;
 - Spectrum Analyzer avec scan ATS natif, détection des stations et export CSV/PNG ;
-- configuration Wi-Fi, identification du firmware et synchronisation NTP.
+- configuration Wi-Fi, identification du firmware et synchronisation NTP ;
+- diagnostic de connexion par `F2` : transport, point de connexion, version du firmware, compteurs TX/RX, PING/PONG, latence et derniers échanges.
 
 ## Matériel et environnement
 

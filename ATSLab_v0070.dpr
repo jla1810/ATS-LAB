@@ -9,6 +9,7 @@ uses
   uSteamButton in 'uSteamButton.pas',
   uSteamButtonManager in 'uSteamButtonManager.pas',
   SerialMonitorUnit in 'SerialMonitorUnit.pas' {frmSerialMonitor},
+  ConnectionDiagnosticUnit in 'ConnectionDiagnosticUnit.pas',
   SerialConnectUnit in 'SerialConnectUnit.pas' {frmSerialConnect},
   uATSConnection in 'uATSConnection.pas',
   uATSProtocol in 'uATSProtocol.pas',
